@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+# Version / changelog consistency test for the acknowledgements kit.
+#
+# Exercises `check-version.sh` — the shared checker used by both this
+# self-test and the `release-acknowledgements-starter.yml` workflow's
+# version-triple assertion — across:
+#
+#   1.  The REAL kit: its `VERSION` agrees with the newest `## [X.Y.Z]`
+#       heading in `CHANGELOG.md` → exit 0. (This is the invariant CI
+#       gates: a version bump must update both files.)
+#   1b. The REAL kit with a prefixed `--tag` — the exact call the release
+#       workflow makes; also covers the default-dir symlink-resolution
+#       path the `--dir` fixtures bypass.
+#   1c. The REAL kit ships an Apache-2.0 `LICENSE` — the grant a public
+#       consumer needs; missing it is a publish defect, not a style nit.
+#   2.  Fixture where VERSION disagrees with the changelog heading →
+#       exit 1, stderr names both versions.
+#   3.  Fixture with a malformed VERSION → exit 1, stderr says so.
+#   3b. Fixture with a leading-zero version (`01.2.3`) → exit 1 (strict
+#       SemVer forbids leading zeros).
+#   4.  Fixture missing CHANGELOG.md → exit 1, stderr names the file.
+#   5.  `--tag` matching VERSION (bare `vX.Y.Z`) → exit 0;
+#       a mismatching tag → exit 1.
+#   6.  `--tag` in the prefixed source form
+#       (`acknowledgements-starter-vX.Y.Z`) is accepted and compared on
+#       its `X.Y.Z` component → exit 0.
+#   7.  A malformed double-prefixed tag (`…-vvX.Y.Z`) → exit 1.
+#   8.  Dispatcher `--version` through a symlink on PATH prints the kit
+#       VERSION (ATTRIB-025).
+#   8b. A copy of the dispatcher with VERSION removed prints `unknown`
+#       at exit 0 (ATTRIB-025).
+#
+# Local invocation:
+#   tools/starters/acknowledgements/tests/version-changelog-consistency.sh
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CHECKER="$SCRIPT_DIR/../check-version.sh"
+
+if [ ! -x "$CHECKER" ]; then
+  echo "error: checker not found or not executable at $CHECKER" >&2
+  exit 1
+fi
+
+fixture_root="$(mktemp -d)"
+trap 'rm -rf "$fixture_root"' EXIT
+
+# ── Scenario 1: the real kit is internally consistent ────────────────
+exit1=0
+out1="$("$CHECKER" 2>&1)" || exit1=$?
+if [ "$exit1" -ne 0 ]; then
+  echo "fail scenario 1: real kit VERSION/CHANGELOG.md disagree (exit $exit1): $out1" >&2
+  exit 1
+fi
+echo "ok scenario 1: real kit VERSION matches CHANGELOG.md heading"
+
+# ── Scenario 1b: real kit + prefixed --tag (the exact release-workflow
+# call). Also exercises the default-dir symlink-resolution path that the
+# --dir fixtures below bypass.
+real_ver="$(grep -m1 -v '^[[:space:]]*$' "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
+exit1b=0
+out1b="$("$CHECKER" --tag "acknowledgements-starter-v${real_ver}" 2>&1)" || exit1b=$?
+if [ "$exit1b" -ne 0 ]; then
+  echo "fail scenario 1b: real kit + prefixed --tag acknowledgements-starter-v${real_ver} rejected (exit $exit1b): $out1b" >&2
+  exit 1
+fi
+echo "ok scenario 1b: real kit + prefixed --tag (release-workflow call) accepted"
+
+# ── Scenario 1c: the published kit carries an Apache-2.0 grant ──────
+license_file="$SCRIPT_DIR/../LICENSE"
+if [ ! -f "$license_file" ]; then
+  echo "fail scenario 1c: LICENSE is missing at $license_file" >&2
+  exit 1
+fi
+if ! grep -qF 'Apache License' "$license_file" ||
+  ! grep -qF 'http://www.apache.org/licenses/LICENSE-2.0' "$license_file"; then
+  echo "fail scenario 1c: LICENSE does not look like Apache-2.0" >&2
+  exit 1
+fi
+echo "ok scenario 1c: LICENSE is present and Apache-2.0"
+
+# ── Scenario 2: VERSION disagrees with the changelog heading ─────────
+d2="$fixture_root/mismatch"
+mkdir -p "$d2"
+printf '1.2.0\n' >"$d2/VERSION"
+printf '# Changelog\n\n## [1.3.0] - 2026-06-08\n\n- thing\n' >"$d2/CHANGELOG.md"
+exit2=0
+out2="$("$CHECKER" --dir "$d2" 2>&1)" || exit2=$?
+if [ "$exit2" -eq 0 ]; then
+  echo "fail scenario 2: checker accepted VERSION 1.2.0 vs heading 1.3.0" >&2
+  exit 1
+fi
+if ! printf '%s' "$out2" | grep -q "1.2.0" || ! printf '%s' "$out2" | grep -q "1.3.0"; then
+  echo "fail scenario 2: stderr does not name both versions (got: $out2)" >&2
+  exit 1
+fi
+echo "ok scenario 2: VERSION/heading mismatch rejected, names both (exit $exit2)"
+
+# ── Scenario 3: malformed VERSION ────────────────────────────────────
+d3="$fixture_root/malformed"
+mkdir -p "$d3"
+printf 'v1.0\n' >"$d3/VERSION"
+printf '# Changelog\n\n## [1.0.0] - 2026-06-08\n' >"$d3/CHANGELOG.md"
+exit3=0
+out3="$("$CHECKER" --dir "$d3" 2>&1)" || exit3=$?
+if [ "$exit3" -eq 0 ]; then
+  echo "fail scenario 3: checker accepted malformed VERSION 'v1.0'" >&2
+  exit 1
+fi
+if ! printf '%s' "$out3" | grep -qiE "semver|version"; then
+  echo "fail scenario 3: stderr lacks a version/semver hint (got: $out3)" >&2
+  exit 1
+fi
+echo "ok scenario 3: malformed VERSION rejected (exit $exit3)"
+
+# ── Scenario 3b: leading-zero version is rejected (strict SemVer) ─────
+d3b="$fixture_root/leading-zero"
+mkdir -p "$d3b"
+printf '01.2.3\n' >"$d3b/VERSION"
+printf '# Changelog\n\n## [01.2.3] - 2026-06-08\n' >"$d3b/CHANGELOG.md"
+exit3b=0
+out3b="$("$CHECKER" --dir "$d3b" 2>&1)" || exit3b=$?
+if [ "$exit3b" -eq 0 ]; then
+  echo "fail scenario 3b: checker accepted leading-zero VERSION '01.2.3'" >&2
+  echo "  output: $out3b" >&2
+  exit 1
+fi
+echo "ok scenario 3b: leading-zero VERSION rejected (exit $exit3b)"
+
+# ── Scenario 4: missing CHANGELOG.md ─────────────────────────────────
+d4="$fixture_root/no-changelog"
+mkdir -p "$d4"
+printf '1.0.0\n' >"$d4/VERSION"
+exit4=0
+out4="$("$CHECKER" --dir "$d4" 2>&1)" || exit4=$?
+if [ "$exit4" -eq 0 ]; then
+  echo "fail scenario 4: checker accepted a missing CHANGELOG.md" >&2
+  exit 1
+fi
+if ! printf '%s' "$out4" | grep -q "CHANGELOG.md"; then
+  echo "fail scenario 4: stderr does not name CHANGELOG.md (got: $out4)" >&2
+  exit 1
+fi
+echo "ok scenario 4: missing CHANGELOG.md rejected (exit $exit4)"
+
+# ── Scenario 5: --tag match / mismatch ───────────────────────────────
+d5="$fixture_root/tagged"
+mkdir -p "$d5"
+printf '2.1.0\n' >"$d5/VERSION"
+printf '# Changelog\n\n## [2.1.0] - 2026-06-08\n\n- thing\n' >"$d5/CHANGELOG.md"
+exit5=0
+out5="$("$CHECKER" --dir "$d5" --tag "v2.1.0" 2>&1)" || exit5=$?
+if [ "$exit5" -ne 0 ]; then
+  echo "fail scenario 5a: matching --tag v2.1.0 rejected (exit $exit5): $out5" >&2
+  exit 1
+fi
+echo "ok scenario 5a: matching --tag v2.1.0 accepted"
+
+exit5b=0
+out5b="$("$CHECKER" --dir "$d5" --tag "v2.2.0" 2>&1)" || exit5b=$?
+if [ "$exit5b" -eq 0 ]; then
+  echo "fail scenario 5b: mismatching --tag v2.2.0 accepted" >&2
+  exit 1
+fi
+if ! printf '%s' "$out5b" | grep -q "2.2.0" || ! printf '%s' "$out5b" | grep -q "2.1.0"; then
+  echo "fail scenario 5b: stderr does not name both tag + VERSION (got: $out5b)" >&2
+  exit 1
+fi
+echo "ok scenario 5b: mismatching --tag rejected, names both (exit $exit5b)"
+
+# ── Scenario 6: prefixed source tag form is accepted ─────────────────
+exit6=0
+out6="$("$CHECKER" --dir "$d5" --tag "acknowledgements-starter-v2.1.0" 2>&1)" || exit6=$?
+if [ "$exit6" -ne 0 ]; then
+  echo "fail scenario 6: prefixed --tag acknowledgements-starter-v2.1.0 rejected (exit $exit6): $out6" >&2
+  exit 1
+fi
+echo "ok scenario 6: prefixed source-tag form accepted"
+
+# ── Scenario 7: a malformed double-prefixed tag is rejected ──────────
+# `acknowledgements-starter-vv2.1.0` must NOT strip down to a valid
+# version — guards the defense-in-depth property of the checker.
+exit7=0
+out7="$("$CHECKER" --dir "$d5" --tag "acknowledgements-starter-vv2.1.0" 2>&1)" || exit7=$?
+if [ "$exit7" -eq 0 ]; then
+  echo "fail scenario 7: checker accepted malformed double-prefixed tag '…-vv2.1.0'" >&2
+  echo "  output: $out7" >&2
+  exit 1
+fi
+echo "ok scenario 7: malformed double-prefixed tag rejected (exit $exit7)"
+
+# ── Scenario 8: dispatcher --version through a symlink on PATH ───────
+DISPATCHER="$SCRIPT_DIR/../generate-acknowledgements.sh"
+if [ ! -x "$DISPATCHER" ]; then
+  echo "error: dispatcher not found or not executable at $DISPATCHER" >&2
+  exit 1
+fi
+path_dir="$fixture_root/bin"
+mkdir -p "$path_dir"
+ln -s "$DISPATCHER" "$path_dir/generate-acknowledgements.sh"
+exit8=0
+out8="$(PATH="$path_dir:$PATH" generate-acknowledgements.sh --version 2>&1)" || exit8=$?
+if [ "$exit8" -ne 0 ]; then
+  echo "fail scenario 8: --version through a PATH symlink exited $exit8: $out8" >&2
+  exit 1
+fi
+if [ "$out8" != "$real_ver" ]; then
+  echo "fail scenario 8: --version printed '$out8', expected kit VERSION '$real_ver'" >&2
+  exit 1
+fi
+echo "ok scenario 8: --version through a PATH symlink prints kit VERSION"
+
+# ── Scenario 8b: dispatcher copy with VERSION removed → unknown ──────
+no_ver_dir="$fixture_root/no-version"
+mkdir -p "$no_ver_dir" "$fixture_root/no-version-bin"
+cp "$DISPATCHER" "$no_ver_dir/generate-acknowledgements.sh"
+chmod +x "$no_ver_dir/generate-acknowledgements.sh"
+ln -s "$no_ver_dir/generate-acknowledgements.sh" \
+  "$fixture_root/no-version-bin/generate-acknowledgements.sh"
+exit8b=0
+out8b="$(
+  PATH="$fixture_root/no-version-bin:$PATH" \
+    generate-acknowledgements.sh --version 2>&1
+)" || exit8b=$?
+if [ "$exit8b" -ne 0 ]; then
+  echo "fail scenario 8b: --version with VERSION absent exited $exit8b: $out8b" >&2
+  exit 1
+fi
+if [ "$out8b" != "unknown" ]; then
+  echo "fail scenario 8b: --version printed '$out8b', expected 'unknown'" >&2
+  exit 1
+fi
+echo "ok scenario 8b: --version with VERSION absent prints unknown (exit 0)"
+
+echo
+echo "version/changelog consistency tests passed: all scenarios green."
