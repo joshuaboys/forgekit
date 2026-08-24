@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| CORE | @joshuaboys | high | In Progress |
+| CORE | @joshuaboys | high | Complete: 2026-08-24 |
 
 **Last reviewed:** 2026-08-24
 
@@ -70,12 +70,13 @@ Change status to **Ready** when:
 - **Confidence:** high
 - **Results:** `push_is_durable_and_visible` and `push_to_missing_repo_fails` pass.
 
-### CORE-003: CAS conflict is observable — Draft
+### CORE-003: CAS conflict is observable — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** Two writers racing the tip produce exactly one winner and a conflict error for the loser.
 - **Expected Outcome:** Second CAS against a stale tip fails without clobbering the winner.
 - **Validation:** `cargo test -p forgekit-core cas -- --nocapture`
 - **Files:** `crates/forgekit-core/`
 - **Dependencies:** CORE-002
 - **Confidence:** high
+- **Results:** `cas_rejects_stale_tip` and `cas_conflict_on_concurrent_push` pass.
