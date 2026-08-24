@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| HTTP | @joshuaboys | high | In Progress |
+| HTTP | @joshuaboys | high | Complete: 2026-08-24 |
 
 **Last reviewed:** 2026-08-24
 
@@ -58,12 +58,13 @@ Change status to **Ready** when:
 - **Confidence:** high
 - **Results:** `healthz_is_ok` and `health_status_reports_mode_backend_and_repo_count` pass.
 
-### HTTP-002: Repo and checkpoint API match host operations — Draft
+### HTTP-002: Repo and checkpoint API match host operations — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** HTTP can create a repo, virtual-push, list checkpoints, and approve.
 - **Expected Outcome:** JSON round-trip equals in-process host behaviour; gate errors are 409/403 not 500.
 - **Validation:** `cargo test -p forgekit-server api`
 - **Files:** `crates/forgekit-server/`
 - **Dependencies:** HTTP-001, CKPT-002
 - **Confidence:** medium
+- **Results:** `api_create_push_checkpoint_approve_roundtrip` and `api_gate_errors_are_not_500` pass.
