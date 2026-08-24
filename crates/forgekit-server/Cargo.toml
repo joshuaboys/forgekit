@@ -1,0 +1,17 @@
+[package]
+name = "forgekit-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "JSON HTTP API for Forgekit"
+
+[dependencies]
+axum.workspace = true
+forgekit-core = { path = "../forgekit-core" }
+forgekit-store = { path = "../forgekit-store" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tower.workspace = true
