@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| STORE | @joshuaboys | high | Draft |
+| STORE | @joshuaboys | high | In Progress |
 
 **Last reviewed:** 2026-08-24
 
@@ -44,14 +44,15 @@ Change status to **Ready** when:
 
 ## Work Items
 
-### STORE-001: Memory backend satisfies the contract — Draft
+### STORE-001: Memory backend satisfies the contract — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** An in-memory backend implements get/put/cas/list for tests and `memory` mode.
 - **Expected Outcome:** CAS succeeds only when expected matches; list_prefix returns stored keys.
 - **Validation:** `cargo test -p forgekit-store memory`
 - **Files:** `crates/forgekit-store/`
 - **Confidence:** high
+- **Results:** `memory_cas_and_list_prefix` and `memory_hosts_create` pass.
 
 ### STORE-002: Filesystem backend persists across process restart — Draft
 
