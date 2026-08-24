@@ -59,15 +59,16 @@ Change status to **Ready** when:
 - **Confidence:** high
 - **Results:** `create_repo_returns_empty_tip`, `create_repo_conflict_is_idempotent_fail`, `create_repo_rejects_invalid_name` pass.
 
-### CORE-002: Virtual push is durable and visible — Draft
+### CORE-002: Virtual push is durable and visible — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** A virtual push writes an immutable entry and CAS-advances the tip so the next read sees the new ref.
 - **Expected Outcome:** seq increments by one; named ref points at the new commit; WAL lists the push.
 - **Validation:** `cargo test -p forgekit-core push -- --nocapture`
 - **Files:** `crates/forgekit-core/`
 - **Dependencies:** CORE-001
 - **Confidence:** high
+- **Results:** `push_is_durable_and_visible` and `push_to_missing_repo_fails` pass.
 
 ### CORE-003: CAS conflict is observable — Draft
 
