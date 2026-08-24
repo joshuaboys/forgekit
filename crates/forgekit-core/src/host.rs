@@ -1,10 +1,12 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::backend::ObjectBackend;
-use crate::id::{manifest_key, repo_key, validate_segment, Oid};
+use crate::id::{content_id, manifest_key, object_key, repo_key, validate_segment, wal_key, Oid};
 use crate::manifest::Manifest;
+use crate::wal::{WalEntry, WalKind};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -14,6 +16,15 @@ pub struct RepoSummary {
     pub seq: u64,
     pub refs: BTreeMap<String, Oid>,
     pub checkpoint_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushRequest {
+    pub r#ref: String,
+    pub message: String,
+    pub actor: String,
+    #[serde(default)]
+    pub files: Vec<String>,
 }
 
 pub struct Host {
@@ -64,6 +75,76 @@ impl Host {
             }
         }
         out.sort_by(|a, b| a.owner.cmp(&b.owner).then(a.name.cmp(&b.name)));
+        Ok(out)
+    }
+
+    pub fn push(&self, owner: &str, name: &str, req: PushRequest) -> Result<(Manifest, Oid)> {
+        let repo = repo_key(owner, name);
+        let manifest = self
+            .load_manifest(&repo)?
+            .ok_or_else(|| Error::RepoNotFound(repo.clone()))?;
+        let prev = manifest.bytes()?;
+
+        let ref_name = if req.r#ref.starts_with("refs/") {
+            req.r#ref.clone()
+        } else {
+            format!("refs/heads/{}", req.r#ref)
+        };
+        let before = manifest.refs.get(&ref_name).cloned();
+        let payload = serde_json::json!({
+            "message": req.message,
+            "parent": before,
+            "files": req.files,
+            "actor": req.actor,
+        });
+        let payload_bytes = serde_json::to_vec(&payload)?;
+        let oid = content_id(&payload_bytes);
+        self.backend.put(&object_key(&repo, &oid), &payload_bytes)?;
+
+        let next_seq = manifest.seq + 1;
+        let entry = WalEntry {
+            seq: next_seq,
+            kind: WalKind::Push,
+            at: Utc::now(),
+            actor: req.actor.clone(),
+            r#ref: Some(ref_name.clone()),
+            before: before.clone(),
+            after: Some(oid.clone()),
+            message: Some(req.message.clone()),
+            extra: BTreeMap::new(),
+        };
+        self.backend
+            .put(&wal_key(&repo, next_seq), &entry.bytes()?)?;
+
+        let mut next = manifest;
+        next.seq = next_seq;
+        next.refs.insert(ref_name, oid.clone());
+        if !next.pack_ids.contains(&oid) {
+            next.pack_ids.push(oid.clone());
+        }
+        let new_bytes = next.bytes()?;
+        if !self
+            .backend
+            .cas(&manifest_key(&repo), Some(&prev), &new_bytes)?
+        {
+            let current = self.load_manifest(&repo)?.map(|m| m.seq).unwrap_or(0);
+            return Err(Error::CasConflict(repo, next_seq - 1, current));
+        }
+        Ok((next, oid))
+    }
+
+    pub fn list_wal(&self, owner: &str, name: &str) -> Result<Vec<WalEntry>> {
+        let repo = repo_key(owner, name);
+        let manifest = self
+            .load_manifest(&repo)?
+            .ok_or_else(|| Error::RepoNotFound(repo.clone()))?;
+        let mut out = Vec::new();
+        for seq in 1..=manifest.seq {
+            if let Some(raw) = self.backend.get(&wal_key(&repo, seq))? {
+                out.push(serde_json::from_slice(&raw)?);
+            }
+        }
+        out.reverse();
         Ok(out)
     }
 
@@ -177,5 +258,50 @@ mod tests {
             host.get_repo("missing", "repo"),
             Err(Error::RepoNotFound(_))
         ));
+    }
+
+    #[test]
+    fn push_is_durable_and_visible() {
+        let host = Host::new(Mem::new());
+        host.create_repo("acme", "app").unwrap();
+        let (man, oid) = host
+            .push(
+                "acme",
+                "app",
+                PushRequest {
+                    r#ref: "main".into(),
+                    message: "feat: auth".into(),
+                    actor: "pi".into(),
+                    files: vec!["src/auth.rs".into()],
+                },
+            )
+            .unwrap();
+        assert_eq!(man.seq, 1);
+        assert_eq!(man.refs.get("refs/heads/main"), Some(&oid));
+        let got = host.get_repo("acme", "app").unwrap();
+        assert_eq!(got.seq, 1);
+        assert_eq!(got.refs.get("refs/heads/main"), Some(&oid));
+        let wal = host.list_wal("acme", "app").unwrap();
+        assert_eq!(wal.len(), 1);
+        assert_eq!(wal[0].kind, WalKind::Push);
+        assert_eq!(wal[0].after.as_ref(), Some(&oid));
+    }
+
+    #[test]
+    fn push_to_missing_repo_fails() {
+        let host = Host::new(Mem::new());
+        let err = host
+            .push(
+                "acme",
+                "missing",
+                PushRequest {
+                    r#ref: "main".into(),
+                    message: "nope".into(),
+                    actor: "pi".into(),
+                    files: vec![],
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(err, Error::RepoNotFound(_)));
     }
 }

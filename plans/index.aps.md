@@ -68,7 +68,6 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 
 ## What's Next
 
-1. Land CORE-001 (create repo + empty tip)
-2. CORE-002 virtual push
-3. CORE-003 CAS conflict (after CORE-002)
-4. STORE-001 can start once CORE-001 is on main
+1. Land CORE-002 (virtual push)
+2. CORE-003 CAS conflict
+3. STORE-001 memory backend (unblocked)
