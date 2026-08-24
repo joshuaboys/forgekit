@@ -1,0 +1,34 @@
+# APS init configuration (replay with `aps init --from`)
+cli_version: 0.8.0
+profile: solo
+shape: single
+plans_dir: plans
+docs_dir: docs
+tooling_root: .aps
+templates:
+  - module
+  - index
+components:
+  - lint-rules
+  - aps-rules
+  - project-context
+  - designs-dir
+  - decisions-dir
+  - releases-dir
+tools:
+  - name: claude-code
+    agents: true
+    hooks: minimal
+    model: default
+  - name: codex
+    agents: true
+    hooks: minimal
+    model: default
+  - name: opencode
+    agents: true
+    hooks: minimal
+    model: default
+  - name: grok
+    agents: false
+    hooks: minimal
+    model: default
