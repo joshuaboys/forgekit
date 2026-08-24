@@ -196,6 +196,14 @@ Until Phase 2, “promote” means **recorded release intent**, not a network pu
 
 Push **without** session/kind for high-churn intermediates so you do not flood the checkpoint list. Attach a checkpoint when the work is a coherent reviewable unit.
 
+### Agent skill
+
+Point coding agents at the operator skill so they learn **when** to checkpoint and promote — not only which HTTP route to hit:
+
+- [`.agents/skills/forgekit-operator/SKILL.md`](.agents/skills/forgekit-operator/SKILL.md)
+
+It encodes: push without checkpoint for noise, with `kind` + `session` for review units, approve as a deliberate gate, promote only after approve, and how to handle `403` / `409`.
+
 ### What “done” looks like for a release tip
 
 1. Tip commit exists on the ref you care about.
