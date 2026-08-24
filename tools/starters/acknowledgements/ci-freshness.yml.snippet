@@ -1,0 +1,52 @@
+# Drop this job into a GitHub Actions workflow to fail CI when
+# ACKNOWLEDGEMENTS.md drifts. Uncomment only the setup for ecosystems
+# you actually declare in attribution.toml.
+#
+# SECURITY: Action references in this file use floating tags
+# (@v1, @v2, @v4, @v5, @v6) for readability, including the commented
+# optional steps. Before using this snippet in a real workflow, replace
+# every `@<tag>` you uncomment with the corresponding full commit SHA.
+
+acknowledgements-diff:
+  name: Acknowledgements freshness
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v6 # pin to commit SHA before merging
+
+    # Node block: uncomment the next two steps.
+    # - uses: actions/setup-node@v4 # pin to commit SHA before merging
+    #   with:
+    #     node-version: '20'
+    # - run: npm ci
+
+    # Rust block: uncomment the next two steps.
+    # - uses: actions-rust-lang/setup-rust-toolchain@v1 # pin to commit SHA before merging
+    # - uses: taiki-e/install-action@v2 # pin to commit SHA before merging
+    #   with:
+    #     tool: cargo-about@0.8.4
+
+    # Go block: uncomment and put go-licenses on PATH.
+    # - uses: actions/setup-go@v5 # pin to commit SHA before merging
+    # - run: go install github.com/google/go-licenses@v1.6.0
+
+    # Python block: the driver uses the consumer-supplied venv
+    # (`venv_path` in attribution.toml). Uncomment and install
+    # pip-licenses plus your project dependencies into that venv.
+    # - uses: actions/setup-python@v5 # pin to commit SHA before merging
+    #   with:
+    #     python-version: '3.12'
+    # - run: |
+    #     python -m venv .venv
+    #     .venv/bin/pip install pip-licenses
+    #     # also install your project's dependencies into that venv
+
+    - name: Acknowledgements freshness
+      run: |
+        if ! tools/starters/acknowledgements/generate-acknowledgements.sh --check; then
+          echo "::error::ACKNOWLEDGEMENTS.md is stale. Re-run the generator locally and commit."
+          exit 1
+        fi
+
+    # If you keep licences.toml, uncomment:
+    # - name: Licences single-source drift check
+    #   run: tools/starters/acknowledgements/expand-licences.sh --check
