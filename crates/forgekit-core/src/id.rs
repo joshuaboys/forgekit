@@ -35,3 +35,7 @@ pub fn wal_key(repo: &str, seq: u64) -> String {
 pub fn object_key(repo: &str, oid: &str) -> String {
     format!("repos/{repo}/objects/{oid}")
 }
+
+pub fn checkpoint_key(repo: &str, id: &str) -> String {
+    format!("repos/{repo}/checkpoints/{id}.json")
+}

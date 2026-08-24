@@ -37,7 +37,7 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 | ------ | ------- | ------ | ------------ |
 | [CORE](./modules/01-core.aps.md) | WAL, CAS tip, refs, host | Complete: 2026-08-24 | — |
 | [STORE](./modules/02-store.aps.md) | Backend trait + memory/filesystem | In Progress | CORE |
-| [CKPT](./modules/03-checkpoints.aps.md) | Checkpoints as the review moment | Draft | CORE, STORE |
+| [CKPT](./modules/03-checkpoints.aps.md) | Checkpoints as the review moment | In Progress | CORE, STORE |
 | [HTTP](./modules/04-http.aps.md) | JSON HTTP API | Draft | CORE, STORE, CKPT |
 | [GHUB](./modules/05-github.aps.md) | Import record + gated promote | Draft | CORE, CKPT |
 | [CLI](./modules/06-cli.aps.md) | `forgekit` binary surface | Draft | HTTP, GHUB |
@@ -68,6 +68,6 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 
 ## What's Next
 
-1. Land CORE-003 (CAS conflict)
-2. STORE-002 filesystem backend
-3. CKPT-001 checkpoint created with the push
+1. STORE-002 filesystem backend
+2. CKPT-002 approve
+3. GHUB-001 promote gate

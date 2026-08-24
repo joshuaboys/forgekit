@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| CKPT | @joshuaboys | high | Draft |
+| CKPT | @joshuaboys | high | In Progress |
 
 **Last reviewed:** 2026-08-24
 
@@ -49,15 +49,16 @@ Change status to **Ready** when:
 
 ## Work Items
 
-### CKPT-001: Checkpoint is created with the push — Draft
+### CKPT-001: Checkpoint is created with the push — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** A virtual push that includes a session records a pending checkpoint linked to the new commit.
 - **Expected Outcome:** Checkpoint is inspectable; trailer is `Entire-Checkpoint: <12-char-id>`; working refs stay the code commit only.
 - **Validation:** `cargo test -p forgekit-core checkpoint`
 - **Files:** `crates/forgekit-core/`
 - **Dependencies:** CORE-002
 - **Confidence:** high
+- **Results:** `checkpoint_is_created_with_the_push` and `checkpoint_trailer_format` pass.
 
 ### CKPT-002: Checkpoint can be approved — Draft
 

@@ -206,6 +206,7 @@ mod tests {
                         message: "first".into(),
                         actor: "pi".into(),
                         files: vec![],
+                        ..Default::default()
                     },
                 )
                 .unwrap();
