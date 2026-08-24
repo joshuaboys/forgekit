@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| CLI | @joshuaboys | medium | In Progress |
+| CLI | @joshuaboys | medium | Complete: 2026-08-24 |
 
 **Last reviewed:** 2026-08-24
 
@@ -60,12 +60,13 @@ Change status to **Ready** when:
 - **Confidence:** medium
 - **Results:** `serve_starts_from_example_config` and `example_config_loads` pass.
 
-### CLI-002: Checkpoint and promote commands reach the host — Draft
+### CLI-002: Checkpoint and promote commands reach the host — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** Operators can list/inspect checkpoints and request promote from the CLI.
 - **Expected Outcome:** Commands fail closed on missing gate; succeed after approval.
 - **Validation:** `cargo test -p forgekit-cli promote`
 - **Files:** `crates/forgekit-cli/`
 - **Dependencies:** CLI-001, GHUB-002, HTTP-002
 - **Confidence:** medium
+- **Results:** `promote_fails_closed_then_succeeds_after_approval` pass.
