@@ -1,0 +1,10 @@
+[package]
+name = "forgekit-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Object backends for Forgekit"
+
+[dependencies]
+forgekit-core = { path = "../forgekit-core" }
+parking_lot.workspace = true
