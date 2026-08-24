@@ -1,0 +1,37 @@
+# Acknowledgements freshness. Action tags are placeholders — pin to commit
+# SHAs before relying on this in production CI.
+#
+# generate-acknowledgements.sh --check is commented until a Cargo.toml /
+# Cargo.lock exists (CORE/CLI crates). expand-licences --check is live now.
+
+name: Acknowledgements
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  licences-drift:
+    name: Licences single-source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Licences single-source drift check
+        run: tools/starters/acknowledgements/expand-licences.sh --check
+
+  # Uncomment with the rust crate + cargo-about once CLI-001 exists:
+  # acknowledgements-diff:
+  #   name: Acknowledgements freshness
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions-rust-lang/setup-rust-toolchain@v1
+  #     - uses: taiki-e/install-action@v2
+  #       with:
+  #         tool: cargo-about@0.8.4
+  #     - name: Acknowledgements freshness
+  #       run: tools/starters/acknowledgements/generate-acknowledgements.sh --check

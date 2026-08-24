@@ -16,6 +16,7 @@ Forgekit is a single-binary Git host for humans and agents. Day-to-day work (esp
 - WAL + CAS tip for consistency; object-store backends later (R2 first)
 - HTTP via Axum; `gix` / upstream `git` where they are the right tool
 - APS for planning; MIT license
+- Acknowledgements via [eddacraft/acknowledgements-starter](https://github.com/eddacraft/acknowledgements-starter) v1.3.0 at `tools/starters/acknowledgements`
 
 ## Conventions
 

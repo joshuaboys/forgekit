@@ -9,6 +9,7 @@ Work on cheap storage. Review through checkpoints. Promote to GitHub when it is 
 - Intent: [plans/index.aps.md](plans/index.aps.md)
 - Architecture: [designs/2026-08-24-forgekit-architecture.design.md](designs/2026-08-24-forgekit-architecture.design.md)
 - Context: [plans/project-context.md](plans/project-context.md)
+- Acknowledgements: [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) ([kit](https://github.com/eddacraft/acknowledgements-starter))
 
 ## Idea
 

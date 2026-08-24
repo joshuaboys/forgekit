@@ -41,6 +41,7 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 | [HTTP](./modules/04-http.aps.md) | JSON HTTP API | Draft | CORE, STORE, CKPT |
 | [GHUB](./modules/05-github.aps.md) | Import record + gated promote | Draft | CORE, CKPT |
 | [CLI](./modules/06-cli.aps.md) | `forgekit` binary surface | Draft | HTTP, GHUB |
+| [ACK](./modules/07-ack.aps.md) | Third-party notices via acknowledgements-starter | Draft | CLI |
 
 ## Risks
 

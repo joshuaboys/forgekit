@@ -1,0 +1,14 @@
+# Forgekit attribution config. The dispatcher at
+# tools/starters/acknowledgements/generate-acknowledgements.sh reads this
+# file and uses NO other project-specific configuration.
+
+[project]
+target_path = "ACKNOWLEDGEMENTS.md"
+fixit_command = "tools/starters/acknowledgements/generate-acknowledgements.sh"
+
+[[blocks]]
+name = "rust"
+ecosystem = "rust"
+manifest_path = "Cargo.toml"
+template_path = "about.hbs"
+config_path = "about.toml"
