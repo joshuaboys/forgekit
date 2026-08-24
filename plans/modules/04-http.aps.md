@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| HTTP | @joshuaboys | high | Draft |
+| HTTP | @joshuaboys | high | In Progress |
 
 **Last reviewed:** 2026-08-24
 
@@ -47,15 +47,16 @@ Change status to **Ready** when:
 
 ## Work Items
 
-### HTTP-001: Status and health are served — Draft
+### HTTP-001: Status and health are served — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** A running binary answers liveness and host status.
 - **Expected Outcome:** `/healthz` is ok; `/v1/status` reports mode, backend, repo count.
 - **Validation:** `cargo test -p forgekit-server health`
 - **Files:** `crates/forgekit-server/`
 - **Dependencies:** CORE-001, STORE-001
 - **Confidence:** high
+- **Results:** `healthz_is_ok` and `health_status_reports_mode_backend_and_repo_count` pass.
 
 ### HTTP-002: Repo and checkpoint API match host operations — Draft
 
