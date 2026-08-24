@@ -288,6 +288,99 @@ mod tests {
     }
 
     #[test]
+    fn cas_rejects_stale_tip() {
+        let backend = Mem::new();
+        let host = Host::new(backend.clone());
+        host.create_repo("acme", "app").unwrap();
+        let key = "repos/acme/app/manifest.json";
+        let prev = backend.get(key).unwrap().unwrap();
+        host.push(
+            "acme",
+            "app",
+            PushRequest {
+                r#ref: "main".into(),
+                message: "first".into(),
+                actor: "a".into(),
+                files: vec![],
+            },
+        )
+        .unwrap();
+        assert!(!backend.cas(key, Some(&prev), b"{}").unwrap());
+        assert_eq!(host.get_repo("acme", "app").unwrap().seq, 1);
+        assert_ne!(
+            host.get_repo("acme", "app")
+                .unwrap()
+                .refs
+                .get("refs/heads/main"),
+            None
+        );
+    }
+
+    #[test]
+    fn cas_conflict_on_concurrent_push() {
+        use std::sync::Barrier;
+        use std::thread;
+
+        struct Latch {
+            inner: Arc<Mem>,
+            gate: Arc<Barrier>,
+        }
+        impl ObjectBackend for Latch {
+            fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
+                self.inner.get(key)
+            }
+            fn put(&self, key: &str, data: &[u8]) -> Result<()> {
+                self.inner.put(key, data)
+            }
+            fn cas(&self, key: &str, expected: Option<&[u8]>, new: &[u8]) -> Result<bool> {
+                if key.ends_with("manifest.json") {
+                    self.gate.wait();
+                }
+                self.inner.cas(key, expected, new)
+            }
+            fn list_prefix(&self, prefix: &str) -> Result<Vec<String>> {
+                self.inner.list_prefix(prefix)
+            }
+        }
+
+        let inner = Mem::new();
+        let setup = Host::new(inner.clone());
+        setup.create_repo("acme", "app").unwrap();
+        let gate = Arc::new(Barrier::new(2));
+        let mk = |msg: &str| {
+            let h = Host::new(Arc::new(Latch {
+                inner: inner.clone(),
+                gate: gate.clone(),
+            }));
+            let msg = msg.to_string();
+            thread::spawn(move || {
+                h.push(
+                    "acme",
+                    "app",
+                    PushRequest {
+                        r#ref: "main".into(),
+                        message: msg,
+                        actor: "racer".into(),
+                        files: vec![],
+                    },
+                )
+            })
+        };
+        let a = mk("a");
+        let b = mk("b");
+        let ra = a.join().unwrap();
+        let rb = b.join().unwrap();
+        let wins = [&ra, &rb].iter().filter(|r| r.is_ok()).count();
+        let losses = [&ra, &rb]
+            .iter()
+            .filter(|r| matches!(r, Err(Error::CasConflict(_, _, _))))
+            .count();
+        assert_eq!(wins, 1, "exactly one winner: {ra:?} {rb:?}");
+        assert_eq!(losses, 1, "exactly one cas conflict: {ra:?} {rb:?}");
+        assert_eq!(setup.get_repo("acme", "app").unwrap().seq, 1);
+    }
+
+    #[test]
     fn push_to_missing_repo_fails() {
         let host = Host::new(Mem::new());
         let err = host
