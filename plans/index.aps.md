@@ -2,7 +2,7 @@
 
 | Field   | Value |
 | ------- | ----- |
-| Status  | Draft |
+| Status  | Complete: 2026-08-24 |
 | Owner   | @joshuaboys |
 | Created | 2026-08-24 |
 
@@ -41,7 +41,7 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 | [HTTP](./modules/04-http.aps.md) | JSON HTTP API | Complete: 2026-08-24 | CORE, STORE, CKPT |
 | [GHUB](./modules/05-github.aps.md) | Import record + gated promote | Complete: 2026-08-24 | CORE, CKPT |
 | [CLI](./modules/06-cli.aps.md) | `forgekit` binary surface | Complete: 2026-08-24 | HTTP, GHUB |
-| [ACK](./modules/07-ack.aps.md) | Third-party notices via acknowledgements-starter | Draft | CLI |
+| [ACK](./modules/07-ack.aps.md) | Third-party notices via acknowledgements-starter | Complete: 2026-08-24 | CLI |
 
 ## Risks
 
@@ -68,4 +68,4 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 
 ## What's Next
 
-1. ACK-002 rust notices from lockfile
+MVP complete. Later: real GitHub push, smart HTTP, R2/S3 backends.

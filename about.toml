@@ -23,6 +23,8 @@ accepted = [
   "Unicode-3.0",
   "Unicode-DFS-2016",
   "Zlib",
+  # webpki-roots
+  "CDLA-Permissive-2.0",
   # END AUTO-GENERATED FROM licences.toml — accepted
 ]
 
