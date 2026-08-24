@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| ACK | @joshuaboys | medium | Draft |
+| ACK | @joshuaboys | medium | Complete: 2026-08-24 |
 
 **Last reviewed:** 2026-08-24
 
@@ -44,21 +44,23 @@ Change status to **Ready** when:
 
 ## Work Items
 
-### ACK-001: Kit adopted and expander is drift-free — Draft
+### ACK-001: Kit adopted and expander is drift-free — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** The acknowledgements starter is vendored and the allow-list expander is the single source of truth.
 - **Expected Outcome:** `tools/starters/acknowledgements` is present; `expand-licences.sh --check` exits 0.
 - **Validation:** `tools/starters/acknowledgements/expand-licences.sh --check`
 - **Files:** `tools/starters/acknowledgements/`, `attribution.toml`, `licences.toml`, `about.toml`, `ACKNOWLEDGEMENTS.md`
 - **Confidence:** high
+- **Results:** expander `--check` is green in CI.
 
-### ACK-002: Rust notices generate from the lockfile — Draft
+### ACK-002: Rust notices generate from the lockfile — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** The shipping binary's third-party licences appear between the rust markers and stay fresh in CI.
 - **Expected Outcome:** `generate-acknowledgements.sh --check` exits 0 against a real `Cargo.lock`.
 - **Validation:** `tools/starters/acknowledgements/generate-acknowledgements.sh --check`
 - **Files:** `ACKNOWLEDGEMENTS.md`, `.github/workflows/acknowledgements.yml`
 - **Dependencies:** CLI-001, ACK-001
 - **Confidence:** medium
+- **Results:** rust block generated from Cargo.lock; generator `--check` enabled in CI.

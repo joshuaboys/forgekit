@@ -76,3 +76,9 @@ deny = true
 spdx = "Zlib"
 about = true
 deny = true
+
+[[licences]]
+spdx = "CDLA-Permissive-2.0"
+about = true
+deny = true
+note = "webpki-roots"
