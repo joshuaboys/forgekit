@@ -4,7 +4,7 @@ A share-nothing Git host for the agent era. One static Rust binary.
 
 Work on cheap storage. Review through checkpoints. Promote to GitHub when it is actually a release.
 
-**Status:** planning. Implementation starts when APS work items are marked Ready.
+**Status:** CORE-001 in flight. Further items stay Draft until Ready.
 
 - Intent: [plans/index.aps.md](plans/index.aps.md)
 - Architecture: [designs/2026-08-24-forgekit-architecture.design.md](designs/2026-08-24-forgekit-architecture.design.md)
@@ -19,4 +19,4 @@ Inspired by Continuity / walgit for WAL+CAS, and by Entire (MIT) for checkpoint 
 
 ## License
 
-MIT (to be added with the first implementation crate).
+[MIT](LICENSE)
