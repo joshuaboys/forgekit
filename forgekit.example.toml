@@ -1,0 +1,11 @@
+# Example Forgekit host config.
+# Copy to forgekit.toml (gitignored) and adjust.
+
+listen = "127.0.0.1:8088"
+mode = "local"
+backend = "memory"
+data_dir = "./data"
+
+[github]
+remote = "github"
+required_checkpoint_kind = "release"
