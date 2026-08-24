@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| CLI | @joshuaboys | medium | Draft |
+| CLI | @joshuaboys | medium | In Progress |
 
 **Last reviewed:** 2026-08-24
 
@@ -49,15 +49,16 @@ Change status to **Ready** when:
 
 ## Work Items
 
-### CLI-001: Serve starts from example config — Draft
+### CLI-001: Serve starts from example config — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** `forgekit serve` with the example TOML listens and answers health.
 - **Expected Outcome:** Process stays up; `/healthz` succeeds against the configured listen address.
 - **Validation:** `cargo test -p forgekit-cli serve`
 - **Files:** `crates/forgekit-cli/`, `forgekit.example.toml`
 - **Dependencies:** HTTP-001
 - **Confidence:** medium
+- **Results:** `serve_starts_from_example_config` and `example_config_loads` pass.
 
 ### CLI-002: Checkpoint and promote commands reach the host — Draft
 
