@@ -54,58 +54,171 @@ forgekit --help
 
 ---
 
-## Quick start
+## How to use it properly
 
-### 1. Config
+Forgekit is not a drop-in replacement for `git push origin main` on every save. Treat it as the **day-to-day host** for noisy agent work; GitHub stays the **public / release** surface.
 
-```bash
-cp forgekit.example.toml forgekit.toml   # forgekit.toml is gitignored
-```
+### Mental model
 
-Example (`forgekit.example.toml`):
+| Surface | Role |
+| ------- | ---- |
+| **Forgekit host** | Primary place agents write. Cheap, durable, concurrent-safe (WAL + CAS). |
+| **Checkpoint** | The review moment: a commit bound to session context (prompt, tools, files). Status moves `pending` → `approved` (or rejected/superseded later). |
+| **Promote** | Explicit “this tip is ready for the satellite.” Gated on an **approved** checkpoint of the required kind (default `release`). |
+| **GitHub** | Where humans and CI expect history. Not the daily dump for agent churn. |
+
+Do **not** promote every intermediate agent commit. Push freely on the cheap side; promote only when you mean release (or a stable handoff).
+
+### Choose a backend
+
+| Backend | Use when |
+| ------- | -------- |
+| `filesystem` | Real work. State lives under `data_dir` and survives restart. **Use this by default.** |
+| `memory` | Unit tests and throwaway demos only. State dies with the process and is **not** shared with other CLI invocations. |
 
 ```toml
-listen = "127.0.0.1:8088"
-mode = "local"
-backend = "memory"          # or "filesystem"
-data_dir = "./data"         # used when backend = "filesystem"
-
-[github]
-remote = "github"
-required_checkpoint_kind = "release"
+backend = "filesystem"
+data_dir = "./data"
 ```
 
-| Field | Meaning |
-| ----- | ------- |
-| `listen` | HTTP bind address |
-| `mode` | Operational mode label (`local` / `store` / `hybrid`) — config, not separate products |
-| `backend` | `memory` (ephemeral) or `filesystem` (durable under `data_dir`) |
-| `github.required_checkpoint_kind` | Kind required to pass the promote gate (default `release`) |
+Run **one** `forgekit serve` per data directory. CLI commands (`status`, `checkpoint`, `promote`) are HTTP clients against `listen` — they need that serve process up.
 
-**Tip:** Use `backend = "filesystem"` for anything you care about keeping. `memory` is for tests and throwaway demos; it does not share state across processes.
+### The intended loop
 
-### 2. Start the host
+```text
+1. serve          — long-running host
+2. create repo    — once per project
+3. virtual push   — agents write often; attach session + kind when you want a review unit
+4. list / inspect — human or agent reviews the checkpoint
+5. approve        — deliberate accept of that review unit
+6. promote        — only after approve; records the release intent
+```
+
+#### 1. Start the host (leave it running)
 
 ```bash
+cp forgekit.example.toml forgekit.toml
+# set backend = "filesystem"
 forgekit serve --config forgekit.toml
 ```
 
-Health check:
-
 ```bash
-curl -s http://127.0.0.1:8088/healthz
-# {"ok":true}
+curl -s http://127.0.0.1:8088/healthz   # {"ok":true}
+forgekit status --config forgekit.toml
 ```
 
-### 3. Create a repo and virtual-push (with a checkpoint)
+#### 2. Create a repository once
 
 ```bash
-# create
+curl -s -X POST http://127.0.0.1:8088/v1/repos \
+  -H 'content-type: application/json' \
+  -d '{"owner":"acme","name":"app"}'
+```
+
+Names are restricted to alphanumeric, `-`, `_`, `.` (max 64). Invalid names return `400`.
+
+#### 3. Virtual-push work (often)
+
+A push always advances the tip (WAL + CAS). A **checkpoint** is created only when you send `session` and/or `kind`:
+
+```bash
+curl -s -X POST http://127.0.0.1:8088/v1/repos/acme/app/push \
+  -H 'content-type: application/json' \
+  -d '{
+    "ref": "main",
+    "message": "feat: auth",
+    "actor": "pi",
+    "files": ["src/auth.rs"],
+    "kind": "release",
+    "session": {
+      "prompt": "add auth middleware",
+      "tools": ["edit", "test"],
+      "attribution": "pi"
+    }
+  }'
+```
+
+| Field | Guidance |
+| ----- | -------- |
+| `ref` | Branch name (`main`) or full ref (`refs/heads/main`) |
+| `actor` | Who wrote this (agent id or human) |
+| `kind` | `work` (default if only session), `stable`, or `release`. Use **`release`** when this tip should be promotable. |
+| `session` | Capture enough context to review later without re-running the agent. |
+| omit both `session` and `kind` | Durable push **without** a checkpoint (fine for intermediate noise). |
+
+Working refs always point at the **code commit**, not the checkpoint id. Checkpoint trailer form: `Entire-Checkpoint: <12-char-id>`.
+
+Concurrent pushes race the tip: exactly one wins; the loser gets `409` / `CasConflict`. Retry after re-reading the tip.
+
+#### 4. Review checkpoints
+
+```bash
+forgekit checkpoint list --config forgekit.toml --owner acme --name app
+forgekit checkpoint inspect --config forgekit.toml --owner acme --name app --id <12-char-id>
+```
+
+Or HTTP:
+
+```bash
+curl -s http://127.0.0.1:8088/v1/repos/acme/app/checkpoints
+curl -s http://127.0.0.1:8088/v1/repos/acme/app/events   # WAL: push, checkpoint, approve, promote
+```
+
+Read the session payload. That is the review surface — not a CI log.
+
+#### 5. Approve when you mean it
+
+```bash
+curl -s -X POST http://127.0.0.1:8088/v1/repos/acme/app/checkpoints/<id>/approve \
+  -H 'content-type: application/json' \
+  -d '{"actor":"josh"}'
+```
+
+Only `pending` checkpoints can be approved. A second approve returns `409`. Approval is durable (WAL `approve`).
+
+#### 6. Promote only after approval
+
+```bash
+forgekit promote --config forgekit.toml --owner acme --name app --ref main --actor josh
+```
+
+- **Without** an approved checkpoint of `github.required_checkpoint_kind` on that tip → **fails closed** (`403`).
+- **With** a matching approved checkpoint → WAL `promote` entry is written (`remote=github`, `pushed=false`).
+
+Until Phase 2, “promote” means **recorded release intent**, not a network push. You still ship to GitHub by whatever process you use today; the gate is the quality boundary inside Forgekit.
+
+### Agent integration pattern
+
+1. Keep `forgekit serve` running for the project (filesystem backend).
+2. Agent finishes a unit of work → `POST .../push` with `kind` + `session` (prompt, tools, files touched).
+3. Human or policy agent → `checkpoint list` / `inspect` → `approve` when the unit is acceptable.
+4. Release operator → `promote` when the tip should leave the cheap primary.
+
+Push **without** session/kind for high-churn intermediates so you do not flood the checkpoint list. Attach a checkpoint when the work is a coherent reviewable unit.
+
+### What “done” looks like for a release tip
+
+1. Tip commit exists on the ref you care about.
+2. A checkpoint of kind `release` (or your configured kind) points at that commit.
+3. That checkpoint is `approved`.
+4. `promote` succeeds and appears in `/events`.
+
+Anything short of that is still local agent work — which is the point.
+
+---
+
+## Quick start (copy-paste)
+
+```bash
+cp forgekit.example.toml forgekit.toml
+# edit: backend = "filesystem"
+
+forgekit serve --config forgekit.toml &
+
 curl -s -X POST http://127.0.0.1:8088/v1/repos \
   -H 'content-type: application/json' \
   -d '{"owner":"acme","name":"app"}'
 
-# push + pending checkpoint (kind release, with a session)
 curl -s -X POST http://127.0.0.1:8088/v1/repos/acme/app/push \
   -H 'content-type: application/json' \
   -d '{
@@ -116,40 +229,25 @@ curl -s -X POST http://127.0.0.1:8088/v1/repos/acme/app/push \
     "kind": "release",
     "session": { "prompt": "add auth" }
   }'
-```
 
-### 4. Inspect, approve, promote
-
-CLI (talks to the running host via `listen` in the config):
-
-```bash
-forgekit status --config forgekit.toml
 forgekit checkpoint list --config forgekit.toml --owner acme --name app
-forgekit checkpoint inspect --config forgekit.toml --owner acme --name app --id <12-char-id>
-
-# approve is HTTP for now
-curl -s -X POST http://127.0.0.1:8088/v1/repos/acme/app/checkpoints/<id>/approve \
-  -H 'content-type: application/json' \
-  -d '{"actor":"josh"}'
-
+# approve via HTTP, then:
 forgekit promote --config forgekit.toml --owner acme --name app --ref main --actor josh
 ```
-
-Promote **without** an approved checkpoint of the required kind fails closed (`403`). After approval, promote appends a WAL `promote` entry (`pushed=false` until Phase 2).
 
 ---
 
 ## CLI
 
 ```text
-forgekit serve --config <path>          # start JSON HTTP host
+forgekit serve --config <path>          # start JSON HTTP host (long-running)
 forgekit status --config <path>         # mode, backend, repo count
 forgekit checkpoint list  --config <path> --owner <o> --name <n>
 forgekit checkpoint inspect --config <path> --owner <o> --name <n> --id <id>
 forgekit promote --config <path> --owner <o> --name <n> --ref <ref> [--actor <who>]
 ```
 
-Default `--config` is `forgekit.toml` in the current directory.
+Default `--config` is `forgekit.toml` in the current directory. All commands except `serve` require a reachable host on `listen`.
 
 ---
 
