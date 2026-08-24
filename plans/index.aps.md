@@ -35,7 +35,7 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 
 | Module | Purpose | Status | Dependencies |
 | ------ | ------- | ------ | ------------ |
-| [CORE](./modules/01-core.aps.md) | WAL, CAS tip, refs, host | Draft | — |
+| [CORE](./modules/01-core.aps.md) | WAL, CAS tip, refs, host | In Progress | — |
 | [STORE](./modules/02-store.aps.md) | Backend trait + memory/filesystem | Draft | CORE |
 | [CKPT](./modules/03-checkpoints.aps.md) | Checkpoints as the review moment | Draft | CORE, STORE |
 | [HTTP](./modules/04-http.aps.md) | JSON HTTP API | Draft | CORE, STORE, CKPT |
@@ -68,6 +68,7 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 
 ## What's Next
 
-1. Human review of this index + architecture design
-2. Mark modules Ready and promote selected work items Draft → Ready
-3. Execute CORE-001 first
+1. Land CORE-001 (create repo + empty tip)
+2. CORE-002 virtual push
+3. CORE-003 CAS conflict (after CORE-002)
+4. STORE-001 can start once CORE-001 is on main

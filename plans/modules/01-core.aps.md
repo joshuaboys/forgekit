@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| CORE | @joshuaboys | high | Draft |
+| CORE | @joshuaboys | high | In Progress |
 
 **Last reviewed:** 2026-08-24
 
@@ -34,8 +34,9 @@ Own repository identity, the WAL, the CAS tip manifest, refs, and the host opera
 
 **Exposes:**
 
-- Host — create, list, get, push
-- Manifest / WAL types
+- Host — create, list, get
+- ObjectBackend trait
+- Manifest types
 
 ## Ready Checklist
 
@@ -44,18 +45,19 @@ Change status to **Ready** when:
 - [x] Purpose and scope are clear
 - [x] Dependencies identified
 - [x] At least one work item defined
-- [ ] Human marks module Ready
+- [x] Human marks CORE-001 Ready (2026-08-24)
 
 ## Work Items
 
-### CORE-001: Repository and tip exist — Draft
+### CORE-001: Repository and tip exist — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** A named repository can be created and its empty tip read back.
 - **Expected Outcome:** Create is idempotent-fail on conflict; get returns seq 0 and no refs.
 - **Validation:** `cargo test -p forgekit-core create -- --nocapture`
 - **Files:** `crates/forgekit-core/`
 - **Confidence:** high
+- **Results:** `create_repo_returns_empty_tip`, `create_repo_conflict_is_idempotent_fail`, `create_repo_rejects_invalid_name` pass.
 
 ### CORE-002: Virtual push is durable and visible — Draft
 
