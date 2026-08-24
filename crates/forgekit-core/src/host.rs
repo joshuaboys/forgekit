@@ -730,4 +730,21 @@ mod tests {
         let wal = host.list_wal("acme", "app").unwrap();
         assert!(!wal.iter().any(|e| e.kind == WalKind::Promote));
     }
+
+    #[test]
+    fn promote_is_recorded_after_approval() {
+        let host = Host::new(Mem::new());
+        let ck = session_push(&host);
+        host.approve("acme", "app", &ck.id, "josh").unwrap();
+        let entry = host.promote("acme", "app", promote_req()).unwrap();
+        assert_eq!(entry.kind, WalKind::Promote);
+        assert_eq!(
+            entry.extra.get("remote").map(String::as_str),
+            Some("github")
+        );
+        assert_eq!(entry.extra.get("pushed").map(String::as_str), Some("false"));
+        assert_eq!(entry.extra.get("checkpoint_id"), Some(&ck.id));
+        let wal = host.list_wal("acme", "app").unwrap();
+        assert!(wal.iter().any(|e| e.kind == WalKind::Promote));
+    }
 }

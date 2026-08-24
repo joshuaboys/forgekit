@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| GHUB | @joshuaboys | high | In Progress |
+| GHUB | @joshuaboys | high | Complete: 2026-08-24 |
 
 **Last reviewed:** 2026-08-24
 
@@ -57,12 +57,13 @@ Change status to **Ready** when:
 - **Confidence:** high
 - **Results:** `promote_is_refused_without_the_gate` pass.
 
-### GHUB-002: Promote is recorded after approval — Draft
+### GHUB-002: Promote is recorded after approval — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** After approval, promote appends a WAL promote entry targeting GitHub.
 - **Expected Outcome:** WAL kind is promote; events include promote; GitHub network push is not required.
 - **Validation:** `cargo test -p forgekit-core promote`
 - **Files:** `crates/forgekit-core/`
 - **Dependencies:** GHUB-001
 - **Confidence:** high
+- **Results:** `promote_is_recorded_after_approval` pass.
