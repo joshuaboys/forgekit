@@ -10,6 +10,12 @@ pub enum Error {
     CasConflict(String, u64, u64),
     #[error("invalid name: {0}")]
     InvalidName(String),
+    #[error("checkpoint {0} not found")]
+    CheckpointNotFound(String),
+    #[error("checkpoint {0} is not pending")]
+    CheckpointNotPending(String),
+    #[error("promote refused for {0}: missing approved {1} checkpoint")]
+    PromoteRefused(String, String),
     #[error("store: {0}")]
     Store(String),
     #[error("serialize: {0}")]

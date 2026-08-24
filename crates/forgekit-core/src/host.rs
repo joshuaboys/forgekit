@@ -4,7 +4,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::backend::ObjectBackend;
-use crate::id::{content_id, manifest_key, object_key, repo_key, validate_segment, wal_key, Oid};
+use crate::checkpoint::{Checkpoint, CheckpointKind, Session};
+use crate::id::{
+    checkpoint_key, content_id, manifest_key, object_key, repo_key, validate_segment, wal_key, Oid,
+};
 use crate::manifest::Manifest;
 use crate::wal::{WalEntry, WalKind};
 use crate::{Error, Result};
@@ -18,13 +21,17 @@ pub struct RepoSummary {
     pub checkpoint_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PushRequest {
     pub r#ref: String,
     pub message: String,
     pub actor: String,
     #[serde(default)]
     pub files: Vec<String>,
+    #[serde(default)]
+    pub session: Option<Session>,
+    #[serde(default)]
+    pub kind: Option<CheckpointKind>,
 }
 
 pub struct Host {
@@ -101,6 +108,25 @@ impl Host {
         let oid = content_id(&payload_bytes);
         self.backend.put(&object_key(&repo, &oid), &payload_bytes)?;
 
+        let want_checkpoint = req.session.is_some() || req.kind.is_some();
+        let checkpoint = if want_checkpoint {
+            let sessions = req.session.clone().into_iter().collect::<Vec<_>>();
+            Some(Checkpoint::new(
+                oid.clone(),
+                req.kind.unwrap_or_default(),
+                req.actor.clone(),
+                sessions,
+                req.files.clone(),
+            ))
+        } else {
+            None
+        };
+
+        let mut extra = BTreeMap::new();
+        if let Some(ckpt) = &checkpoint {
+            extra.insert("checkpoint_id".into(), ckpt.id.clone());
+        }
+
         let next_seq = manifest.seq + 1;
         let entry = WalEntry {
             seq: next_seq,
@@ -111,17 +137,39 @@ impl Host {
             before: before.clone(),
             after: Some(oid.clone()),
             message: Some(req.message.clone()),
-            extra: BTreeMap::new(),
+            extra,
         };
         self.backend
             .put(&wal_key(&repo, next_seq), &entry.bytes()?)?;
 
+        let mut seq = next_seq;
         let mut next = manifest;
-        next.seq = next_seq;
+        next.seq = seq;
         next.refs.insert(ref_name, oid.clone());
         if !next.pack_ids.contains(&oid) {
             next.pack_ids.push(oid.clone());
         }
+
+        if let Some(ckpt) = &checkpoint {
+            self.backend
+                .put(&checkpoint_key(&repo, &ckpt.id), &ckpt.bytes()?)?;
+            seq += 1;
+            let ck_entry = WalEntry {
+                seq,
+                kind: WalKind::Checkpoint,
+                at: Utc::now(),
+                actor: req.actor.clone(),
+                r#ref: None,
+                before: None,
+                after: Some(oid.clone()),
+                message: None,
+                extra: BTreeMap::from([("checkpoint_id".into(), ckpt.id.clone())]),
+            };
+            self.backend.put(&wal_key(&repo, seq), &ck_entry.bytes()?)?;
+            next.seq = seq;
+            next.checkpoint_ids.push(ckpt.id.clone());
+        }
+
         let new_bytes = next.bytes()?;
         if !self
             .backend
@@ -131,6 +179,26 @@ impl Host {
             return Err(Error::CasConflict(repo, next_seq - 1, current));
         }
         Ok((next, oid))
+    }
+
+    pub fn list_checkpoints(&self, owner: &str, name: &str) -> Result<Vec<Checkpoint>> {
+        let repo = repo_key(owner, name);
+        let manifest = self
+            .load_manifest(&repo)?
+            .ok_or_else(|| Error::RepoNotFound(repo.clone()))?;
+        let mut out = Vec::new();
+        for id in &manifest.checkpoint_ids {
+            out.push(self.load_checkpoint(&repo, id)?);
+        }
+        Ok(out)
+    }
+
+    pub fn get_checkpoint(&self, owner: &str, name: &str, id: &str) -> Result<Checkpoint> {
+        let repo = repo_key(owner, name);
+        if self.load_manifest(&repo)?.is_none() {
+            return Err(Error::RepoNotFound(repo));
+        }
+        self.load_checkpoint(&repo, id)
     }
 
     pub fn list_wal(&self, owner: &str, name: &str) -> Result<Vec<WalEntry>> {
@@ -146,6 +214,14 @@ impl Host {
         }
         out.reverse();
         Ok(out)
+    }
+
+    fn load_checkpoint(&self, repo: &str, id: &str) -> Result<Checkpoint> {
+        let raw = self
+            .backend
+            .get(&checkpoint_key(repo, id))?
+            .ok_or_else(|| Error::CheckpointNotFound(id.to_string()))?;
+        Ok(serde_json::from_slice(&raw)?)
     }
 
     fn load_manifest(&self, repo: &str) -> Result<Option<Manifest>> {
@@ -273,6 +349,7 @@ mod tests {
                     message: "feat: auth".into(),
                     actor: "pi".into(),
                     files: vec!["src/auth.rs".into()],
+                    ..Default::default()
                 },
             )
             .unwrap();
@@ -302,6 +379,7 @@ mod tests {
                 message: "first".into(),
                 actor: "a".into(),
                 files: vec![],
+                ..Default::default()
             },
         )
         .unwrap();
@@ -362,6 +440,7 @@ mod tests {
                         message: msg,
                         actor: "racer".into(),
                         files: vec![],
+                        ..Default::default()
                     },
                 )
             })
@@ -392,9 +471,70 @@ mod tests {
                     message: "nope".into(),
                     actor: "pi".into(),
                     files: vec![],
+                    ..Default::default()
                 },
             )
             .unwrap_err();
         assert!(matches!(err, Error::RepoNotFound(_)));
+    }
+
+    #[test]
+    fn checkpoint_is_created_with_the_push() {
+        let host = Host::new(Mem::new());
+        host.create_repo("acme", "app").unwrap();
+        let (man, oid) = host
+            .push(
+                "acme",
+                "app",
+                PushRequest {
+                    r#ref: "main".into(),
+                    message: "feat: auth".into(),
+                    actor: "pi".into(),
+                    files: vec!["src/auth.rs".into()],
+                    session: Some(Session {
+                        prompt: Some("add auth".into()),
+                        transcript: Some("wrote src/auth.rs".into()),
+                        tools: vec!["edit".into()],
+                        tokens: Some(1200),
+                        attribution: Some("pi".into()),
+                    }),
+                    kind: Some(CheckpointKind::Work),
+                },
+            )
+            .unwrap();
+        assert_eq!(man.seq, 2);
+        assert_eq!(man.refs.get("refs/heads/main"), Some(&oid));
+        assert_eq!(man.checkpoint_ids.len(), 1);
+
+        let got = host.get_repo("acme", "app").unwrap();
+        assert_eq!(got.checkpoint_count, 1);
+        assert_eq!(got.refs.get("refs/heads/main"), Some(&oid));
+
+        let ckpts = host.list_checkpoints("acme", "app").unwrap();
+        assert_eq!(ckpts.len(), 1);
+        let ck = &ckpts[0];
+        assert_eq!(ck.id.len(), 12);
+        assert_eq!(ck.commit, oid);
+        assert_eq!(ck.kind, CheckpointKind::Work);
+        assert_eq!(ck.status, crate::CheckpointStatus::Pending);
+        assert_eq!(ck.trailer, format!("Entire-Checkpoint: {}", ck.id));
+        assert_eq!(ck.trailer, crate::entire_trailer(&ck.id));
+        assert_eq!(ck.files, vec!["src/auth.rs".to_string()]);
+        assert_eq!(ck.sessions[0].prompt.as_deref(), Some("add auth"));
+
+        let loaded = host.get_checkpoint("acme", "app", &ck.id).unwrap();
+        assert_eq!(loaded, *ck);
+
+        let wal = host.list_wal("acme", "app").unwrap();
+        assert!(wal.iter().any(|e| e.kind == WalKind::Push));
+        assert!(wal.iter().any(|e| e.kind == WalKind::Checkpoint));
+    }
+
+    #[test]
+    fn checkpoint_missing_is_error() {
+        let host = Host::new(Mem::new());
+        host.create_repo("acme", "app").unwrap();
+        let err = host.get_checkpoint("acme", "app", "nope").unwrap_err();
+        assert!(matches!(err, Error::CheckpointNotFound(_)));
     }
 }
