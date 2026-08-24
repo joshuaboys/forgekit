@@ -34,6 +34,24 @@ pub struct PushRequest {
     pub kind: Option<CheckpointKind>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromoteRequest {
+    pub r#ref: String,
+    pub actor: String,
+    #[serde(default = "default_release")]
+    pub required_kind: CheckpointKind,
+    #[serde(default = "default_github")]
+    pub remote: String,
+}
+
+fn default_release() -> CheckpointKind {
+    CheckpointKind::Release
+}
+
+fn default_github() -> String {
+    "github".into()
+}
+
 pub struct Host {
     backend: Arc<dyn ObjectBackend>,
 }
@@ -247,6 +265,65 @@ impl Host {
             return Err(Error::CasConflict(repo, next_seq - 1, current));
         }
         Ok(ckpt)
+    }
+
+    pub fn promote(&self, owner: &str, name: &str, req: PromoteRequest) -> Result<WalEntry> {
+        let repo = repo_key(owner, name);
+        let manifest = self
+            .load_manifest(&repo)?
+            .ok_or_else(|| Error::RepoNotFound(repo.clone()))?;
+        let prev = manifest.bytes()?;
+        let ref_name = if req.r#ref.starts_with("refs/") {
+            req.r#ref.clone()
+        } else {
+            format!("refs/heads/{}", req.r#ref)
+        };
+        let tip = manifest.refs.get(&ref_name).cloned().ok_or_else(|| {
+            Error::PromoteRefused(repo.clone(), req.required_kind.as_str().to_string())
+        })?;
+        let mut matched = None;
+        for id in &manifest.checkpoint_ids {
+            let ck = self.load_checkpoint(&repo, id)?;
+            if ck.commit == tip
+                && ck.status == CheckpointStatus::Approved
+                && ck.kind == req.required_kind
+            {
+                matched = Some(ck);
+                break;
+            }
+        }
+        let ck = matched.ok_or_else(|| {
+            Error::PromoteRefused(repo.clone(), req.required_kind.as_str().to_string())
+        })?;
+
+        let next_seq = manifest.seq + 1;
+        let entry = WalEntry {
+            seq: next_seq,
+            kind: WalKind::Promote,
+            at: Utc::now(),
+            actor: req.actor.clone(),
+            r#ref: Some(ref_name),
+            before: None,
+            after: Some(tip),
+            message: Some(format!("recorded promote to {}", req.remote)),
+            extra: BTreeMap::from([
+                ("remote".into(), req.remote.clone()),
+                ("checkpoint_id".into(), ck.id.clone()),
+                ("pushed".into(), "false".into()),
+            ]),
+        };
+        self.backend
+            .put(&wal_key(&repo, next_seq), &entry.bytes()?)?;
+        let mut next = manifest;
+        next.seq = next_seq;
+        if !self
+            .backend
+            .cas(&manifest_key(&repo), Some(&prev), &next.bytes()?)?
+        {
+            let current = self.load_manifest(&repo)?.map(|m| m.seq).unwrap_or(0);
+            return Err(Error::CasConflict(repo, next_seq - 1, current));
+        }
+        Ok(entry)
     }
 
     pub fn list_wal(&self, owner: &str, name: &str) -> Result<Vec<WalEntry>> {
@@ -633,5 +710,24 @@ mod tests {
         host.create_repo("acme", "app").unwrap();
         let err = host.approve("acme", "app", "nope", "josh").unwrap_err();
         assert!(matches!(err, Error::CheckpointNotFound(_)));
+    }
+
+    fn promote_req() -> PromoteRequest {
+        PromoteRequest {
+            r#ref: "main".into(),
+            actor: "josh".into(),
+            required_kind: CheckpointKind::Release,
+            remote: "github".into(),
+        }
+    }
+
+    #[test]
+    fn promote_is_refused_without_the_gate() {
+        let host = Host::new(Mem::new());
+        session_push(&host);
+        let err = host.promote("acme", "app", promote_req()).unwrap_err();
+        assert!(matches!(err, Error::PromoteRefused(_, kind) if kind == "release"));
+        let wal = host.list_wal("acme", "app").unwrap();
+        assert!(!wal.iter().any(|e| e.kind == WalKind::Promote));
     }
 }
