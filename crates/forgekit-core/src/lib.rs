@@ -11,7 +11,7 @@ mod wal;
 pub use backend::ObjectBackend;
 pub use checkpoint::{entire_trailer, Checkpoint, CheckpointKind, CheckpointStatus, Session};
 pub use error::Error;
-pub use host::{Host, PushRequest, RepoSummary};
+pub use host::{Host, PromoteRequest, PushRequest, RepoSummary};
 pub use id::{content_id, repo_key, Oid};
 pub use manifest::Manifest;
 pub use wal::{WalEntry, WalKind};

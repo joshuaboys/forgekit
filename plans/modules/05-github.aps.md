@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| GHUB | @joshuaboys | high | Draft |
+| GHUB | @joshuaboys | high | In Progress |
 
 **Last reviewed:** 2026-08-24
 
@@ -46,15 +46,16 @@ Change status to **Ready** when:
 
 ## Work Items
 
-### GHUB-001: Promote is refused without the gate — Draft
+### GHUB-001: Promote is refused without the gate — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** Promote of a tip without an approved checkpoint of the required kind fails.
 - **Expected Outcome:** Error names the missing kind; no WAL promote entry is written.
 - **Validation:** `cargo test -p forgekit-core promote`
 - **Files:** `crates/forgekit-core/`
 - **Dependencies:** CKPT-002
 - **Confidence:** high
+- **Results:** `promote_is_refused_without_the_gate` pass.
 
 ### GHUB-002: Promote is recorded after approval — Draft
 
