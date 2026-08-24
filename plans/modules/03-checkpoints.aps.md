@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| CKPT | @joshuaboys | high | In Progress |
+| CKPT | @joshuaboys | high | Complete: 2026-08-24 |
 
 **Last reviewed:** 2026-08-24
 
@@ -60,12 +60,13 @@ Change status to **Ready** when:
 - **Confidence:** high
 - **Results:** `checkpoint_is_created_with_the_push` and `checkpoint_trailer_format` pass.
 
-### CKPT-002: Checkpoint can be approved — Draft
+### CKPT-002: Checkpoint can be approved — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** An actor can approve a pending checkpoint and that fact is durable.
 - **Expected Outcome:** Status becomes approved with actor and time; WAL records the approval.
 - **Validation:** `cargo test -p forgekit-core approve`
 - **Files:** `crates/forgekit-core/`
 - **Dependencies:** CKPT-001
 - **Confidence:** high
+- **Results:** `approve_pending_checkpoint_is_durable` and `approve_missing_checkpoint_fails` pass.
