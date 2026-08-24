@@ -2,7 +2,7 @@
 
 | ID | Owner | Priority | Status |
 | --- | ----- | -------- | ------ |
-| STORE | @joshuaboys | high | In Progress |
+| STORE | @joshuaboys | high | Complete: 2026-08-24 |
 
 **Last reviewed:** 2026-08-24
 
@@ -54,12 +54,13 @@ Change status to **Ready** when:
 - **Confidence:** high
 - **Results:** `memory_cas_and_list_prefix` and `memory_hosts_create` pass.
 
-### STORE-002: Filesystem backend persists across process restart — Draft
+### STORE-002: Filesystem backend persists across process restart — Complete: 2026-08-24
 
-- **Status:** Draft
+- **Status:** Complete: 2026-08-24
 - **Intent:** A filesystem backend stores the same contract on disk for `local` / cache.
 - **Expected Outcome:** Values written in one process are readable after reopen; CAS still exclusive.
 - **Validation:** `cargo test -p forgekit-store filesystem`
 - **Files:** `crates/forgekit-store/`
 - **Dependencies:** STORE-001
 - **Confidence:** high
+- **Results:** `filesystem_persists_across_reopen`, `filesystem_cas_is_exclusive`, `filesystem_hosts_create_and_survives_reopen` pass.
