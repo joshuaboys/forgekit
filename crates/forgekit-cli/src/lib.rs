@@ -1,7 +1,11 @@
 //! CLI config and host wiring.
 
+mod client;
+
+pub use client::{parse_kind, Client};
+
 use clap::{Parser, Subcommand};
-use forgekit_core::{Host, ObjectBackend};
+use forgekit_core::{Host, ObjectBackend, PromoteRequest};
 use forgekit_server::AppState;
 use forgekit_store::{FilesystemBackend, MemoryBackend};
 use serde::Deserialize;
@@ -22,6 +26,51 @@ pub enum Command {
     Serve {
         #[arg(long, default_value = "forgekit.toml")]
         config: PathBuf,
+    },
+    /// Host status
+    Status {
+        #[arg(long, default_value = "forgekit.toml")]
+        config: PathBuf,
+    },
+    /// Inspect checkpoints
+    Checkpoint {
+        #[command(subcommand)]
+        action: CheckpointCommand,
+    },
+    /// Record a gated promote to GitHub (not a network push)
+    Promote {
+        #[arg(long, default_value = "forgekit.toml")]
+        config: PathBuf,
+        #[arg(long)]
+        owner: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long, default_value = "main")]
+        r#ref: String,
+        #[arg(long, default_value = "cli")]
+        actor: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CheckpointCommand {
+    List {
+        #[arg(long, default_value = "forgekit.toml")]
+        config: PathBuf,
+        #[arg(long)]
+        owner: String,
+        #[arg(long)]
+        name: String,
+    },
+    Inspect {
+        #[arg(long, default_value = "forgekit.toml")]
+        config: PathBuf,
+        #[arg(long)]
+        owner: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        id: String,
     },
 }
 
@@ -69,6 +118,10 @@ impl Config {
             .map_err(|e| format!("listen address: {e}"))
     }
 
+    pub fn client(&self) -> Client {
+        Client::new(&self.listen)
+    }
+
     pub fn app_state(&self) -> Result<AppState, String> {
         let backend: Arc<dyn ObjectBackend> = match self.backend.as_str() {
             "memory" => Arc::new(MemoryBackend::new()),
@@ -93,10 +146,51 @@ pub async fn serve(config: Config) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+pub async fn run_status(config: &Config) -> Result<String, String> {
+    let v = config.client().status().await?;
+    Ok(serde_json::to_string_pretty(&v).unwrap())
+}
+
+pub async fn run_checkpoint_list(
+    config: &Config,
+    owner: &str,
+    name: &str,
+) -> Result<String, String> {
+    let list = config.client().list_checkpoints(owner, name).await?;
+    Ok(serde_json::to_string_pretty(&list).unwrap())
+}
+
+pub async fn run_checkpoint_inspect(
+    config: &Config,
+    owner: &str,
+    name: &str,
+    id: &str,
+) -> Result<String, String> {
+    let ck = config.client().inspect_checkpoint(owner, name, id).await?;
+    Ok(serde_json::to_string_pretty(&ck).unwrap())
+}
+
+pub async fn run_promote(
+    config: &Config,
+    owner: &str,
+    name: &str,
+    r#ref: &str,
+    actor: &str,
+) -> Result<String, String> {
+    let req = PromoteRequest {
+        r#ref: r#ref.into(),
+        actor: actor.into(),
+        required_kind: parse_kind(&config.github.required_checkpoint_kind)?,
+        remote: config.github.remote.clone(),
+    };
+    let entry = config.client().promote(owner, name, req).await?;
+    Ok(serde_json::to_string_pretty(&entry).unwrap())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use forgekit_core::{CheckpointKind, Session};
     use tokio::net::TcpListener;
 
     fn example_path() -> PathBuf {
@@ -111,8 +205,7 @@ mod tests {
         assert_eq!(cfg.github.required_checkpoint_kind, "release");
     }
 
-    #[tokio::test]
-    async fn serve_starts_from_example_config() {
+    async fn spawn_example() -> (Client, Config) {
         let cfg = Config::load(example_path()).unwrap();
         let state = cfg.app_state().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -122,18 +215,64 @@ mod tests {
                 .await
                 .unwrap();
         });
+        let mut cfg = cfg;
+        cfg.listen = addr.to_string();
+        (Client::new(&cfg.listen), cfg)
+    }
 
-        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-        stream
-            .write_all(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+    #[tokio::test]
+    async fn serve_starts_from_example_config() {
+        let (client, _) = spawn_example().await;
+        let status = client.status().await.unwrap();
+        assert_eq!(status["mode"], "local");
+        assert_eq!(status["backend"], "memory");
+    }
+
+    #[tokio::test]
+    async fn promote_fails_closed_then_succeeds_after_approval() {
+        let (client, cfg) = spawn_example().await;
+        client.create_repo("acme", "app").await.unwrap();
+        client
+            .push(
+                "acme",
+                "app",
+                &forgekit_core::PushRequest {
+                    r#ref: "main".into(),
+                    message: "feat".into(),
+                    actor: "pi".into(),
+                    files: vec!["a.rs".into()],
+                    session: Some(Session {
+                        prompt: Some("do it".into()),
+                        ..Default::default()
+                    }),
+                    kind: Some(CheckpointKind::Release),
+                },
+            )
             .await
             .unwrap();
-        let mut buf = String::new();
-        stream.read_to_string(&mut buf).await.unwrap();
-        assert!(buf.starts_with("HTTP/1.1 200"), "{buf}");
+        let listed = client.list_checkpoints("acme", "app").await.unwrap();
+        assert_eq!(listed.len(), 1);
+        let id = listed[0].id.clone();
+        let inspected = client.inspect_checkpoint("acme", "app", &id).await.unwrap();
+        assert_eq!(inspected.id, id);
+
+        let err = run_promote(&cfg, "acme", "app", "main", "josh")
+            .await
+            .unwrap_err();
         assert!(
-            buf.contains("\"ok\":true") || buf.contains("\"ok\": true"),
-            "{buf}"
+            err.contains("403") || err.to_lowercase().contains("promote refused"),
+            "{err}"
         );
+
+        client.approve("acme", "app", &id, "josh").await.unwrap();
+        let out = run_promote(&cfg, "acme", "app", "main", "josh")
+            .await
+            .unwrap();
+        assert!(
+            out.contains("\"promote\"") || out.contains("promote"),
+            "{out}"
+        );
+        assert!(out.contains("github"), "{out}");
+        assert!(out.contains("false"), "{out}");
     }
 }

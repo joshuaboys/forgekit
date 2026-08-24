@@ -15,8 +15,8 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 - [x] A virtual push appends WAL and CAS-updates the tip; the next read sees it
 - [x] A checkpoint can be created, inspected, and approved
 - [x] Promote is refused without the required approved checkpoint, then recorded
-- [ ] One binary serves a host with `local` and in-memory/filesystem `store` backends
-- [ ] JSON HTTP API and CLI expose status, repos, checkpoints, promote, events
+- [x] One binary serves a host with `local` and in-memory/filesystem `store` backends
+- [x] JSON HTTP API and CLI expose status, repos, checkpoints, promote, events
 - [x] Core WAL / checkpoint / promote tests pass
 
 ## Constraints
@@ -40,7 +40,7 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 | [CKPT](./modules/03-checkpoints.aps.md) | Checkpoints as the review moment | Complete: 2026-08-24 | CORE, STORE |
 | [HTTP](./modules/04-http.aps.md) | JSON HTTP API | Complete: 2026-08-24 | CORE, STORE, CKPT |
 | [GHUB](./modules/05-github.aps.md) | Import record + gated promote | Complete: 2026-08-24 | CORE, CKPT |
-| [CLI](./modules/06-cli.aps.md) | `forgekit` binary surface | Draft | HTTP, GHUB |
+| [CLI](./modules/06-cli.aps.md) | `forgekit` binary surface | Complete: 2026-08-24 | HTTP, GHUB |
 | [ACK](./modules/07-ack.aps.md) | Third-party notices via acknowledgements-starter | Draft | CLI |
 
 ## Risks
@@ -68,6 +68,4 @@ Agent-heavy Git work is too expensive and too noisy on GitHub, and CI is the wro
 
 ## What's Next
 
-1. CLI-001 serve
-2. CLI-002 checkpoint and promote commands
-3. ACK-002 rust notices from lockfile
+1. ACK-002 rust notices from lockfile
