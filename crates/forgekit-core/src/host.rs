@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::backend::ObjectBackend;
-use crate::checkpoint::{Checkpoint, CheckpointKind, Session};
+use crate::checkpoint::{Checkpoint, CheckpointKind, CheckpointStatus, Session};
 use crate::id::{
     checkpoint_key, content_id, manifest_key, object_key, repo_key, validate_segment, wal_key, Oid,
 };
@@ -199,6 +199,54 @@ impl Host {
             return Err(Error::RepoNotFound(repo));
         }
         self.load_checkpoint(&repo, id)
+    }
+
+    pub fn approve(&self, owner: &str, name: &str, id: &str, actor: &str) -> Result<Checkpoint> {
+        let repo = repo_key(owner, name);
+        let manifest = self
+            .load_manifest(&repo)?
+            .ok_or_else(|| Error::RepoNotFound(repo.clone()))?;
+        let prev = manifest.bytes()?;
+        let mut ckpt = self.load_checkpoint(&repo, id)?;
+        if ckpt.status != CheckpointStatus::Pending {
+            return Err(Error::CheckpointNotPending(id.to_string()));
+        }
+        let prev_ckpt = ckpt.bytes()?;
+        ckpt.status = CheckpointStatus::Approved;
+        ckpt.approved_by = Some(actor.to_string());
+        ckpt.approved_at = Some(Utc::now());
+        let new_ckpt = ckpt.bytes()?;
+        if !self
+            .backend
+            .cas(&checkpoint_key(&repo, id), Some(&prev_ckpt), &new_ckpt)?
+        {
+            let current = self.load_manifest(&repo)?.map(|m| m.seq).unwrap_or(0);
+            return Err(Error::CasConflict(repo, manifest.seq, current));
+        }
+        let next_seq = manifest.seq + 1;
+        let entry = WalEntry {
+            seq: next_seq,
+            kind: WalKind::Approve,
+            at: Utc::now(),
+            actor: actor.to_string(),
+            r#ref: None,
+            before: None,
+            after: Some(ckpt.commit.clone()),
+            message: None,
+            extra: BTreeMap::from([("checkpoint_id".into(), ckpt.id.clone())]),
+        };
+        self.backend
+            .put(&wal_key(&repo, next_seq), &entry.bytes()?)?;
+        let mut next = manifest;
+        next.seq = next_seq;
+        if !self
+            .backend
+            .cas(&manifest_key(&repo), Some(&prev), &next.bytes()?)?
+        {
+            let current = self.load_manifest(&repo)?.map(|m| m.seq).unwrap_or(0);
+            return Err(Error::CasConflict(repo, next_seq - 1, current));
+        }
+        Ok(ckpt)
     }
 
     pub fn list_wal(&self, owner: &str, name: &str) -> Result<Vec<WalEntry>> {
@@ -535,6 +583,55 @@ mod tests {
         let host = Host::new(Mem::new());
         host.create_repo("acme", "app").unwrap();
         let err = host.get_checkpoint("acme", "app", "nope").unwrap_err();
+        assert!(matches!(err, Error::CheckpointNotFound(_)));
+    }
+
+    fn session_push(host: &Host) -> Checkpoint {
+        host.create_repo("acme", "app").ok();
+        let (_, oid) = host
+            .push(
+                "acme",
+                "app",
+                PushRequest {
+                    r#ref: "main".into(),
+                    message: "feat: auth".into(),
+                    actor: "pi".into(),
+                    files: vec!["src/auth.rs".into()],
+                    session: Some(Session {
+                        prompt: Some("add auth".into()),
+                        ..Default::default()
+                    }),
+                    kind: Some(CheckpointKind::Release),
+                },
+            )
+            .unwrap();
+        let ck = host.list_checkpoints("acme", "app").unwrap().remove(0);
+        assert_eq!(ck.commit, oid);
+        ck
+    }
+
+    #[test]
+    fn approve_pending_checkpoint_is_durable() {
+        let host = Host::new(Mem::new());
+        let ck = session_push(&host);
+        let approved = host.approve("acme", "app", &ck.id, "josh").unwrap();
+        assert_eq!(approved.status, CheckpointStatus::Approved);
+        assert_eq!(approved.approved_by.as_deref(), Some("josh"));
+        assert!(approved.approved_at.is_some());
+        let loaded = host.get_checkpoint("acme", "app", &ck.id).unwrap();
+        assert_eq!(loaded.status, CheckpointStatus::Approved);
+        assert_eq!(loaded.approved_by.as_deref(), Some("josh"));
+        let wal = host.list_wal("acme", "app").unwrap();
+        assert!(wal.iter().any(|e| e.kind == WalKind::Approve));
+        let err = host.approve("acme", "app", &ck.id, "josh").unwrap_err();
+        assert!(matches!(err, Error::CheckpointNotPending(_)));
+    }
+
+    #[test]
+    fn approve_missing_checkpoint_fails() {
+        let host = Host::new(Mem::new());
+        host.create_repo("acme", "app").unwrap();
+        let err = host.approve("acme", "app", "nope", "josh").unwrap_err();
         assert!(matches!(err, Error::CheckpointNotFound(_)));
     }
 }
