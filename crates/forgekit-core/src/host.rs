@@ -9,6 +9,7 @@ use crate::id::{
     checkpoint_key, content_id, manifest_key, object_key, repo_key, validate_segment, wal_key, Oid,
 };
 use crate::manifest::Manifest;
+use crate::satellite::SatelliteResult;
 use crate::wal::{WalEntry, WalKind};
 use crate::{Error, Result};
 
@@ -267,7 +268,17 @@ impl Host {
         Ok(ckpt)
     }
 
-    pub fn promote(&self, owner: &str, name: &str, req: PromoteRequest) -> Result<WalEntry> {
+    /// Promote a tip after an approved checkpoint of the required kind.
+    ///
+    /// `satellite` is the outcome of an optional network push (e.g. GitHub
+    /// evidence via Git Data API). When `None`, the WAL records `pushed=false`.
+    pub fn promote(
+        &self,
+        owner: &str,
+        name: &str,
+        req: PromoteRequest,
+        satellite: Option<SatelliteResult>,
+    ) -> Result<WalEntry> {
         let repo = repo_key(owner, name);
         let manifest = self
             .load_manifest(&repo)?
@@ -296,6 +307,37 @@ impl Host {
             Error::PromoteRefused(repo.clone(), req.required_kind.as_str().to_string())
         })?;
 
+        let sat = satellite.unwrap_or_else(SatelliteResult::recorded_only);
+        let mut extra = BTreeMap::from([
+            ("remote".into(), req.remote.clone()),
+            ("checkpoint_id".into(), ck.id.clone()),
+            (
+                "pushed".into(),
+                if sat.pushed {
+                    "true".into()
+                } else {
+                    "false".into()
+                },
+            ),
+        ]);
+        if let Some(r) = &sat.remote_ref {
+            extra.insert("remote_ref".into(), r.clone());
+        }
+        if let Some(u) = &sat.url {
+            extra.insert("url".into(), u.clone());
+        }
+        if let Some(e) = &sat.error {
+            extra.insert("satellite_error".into(), e.clone());
+        }
+
+        let message = if sat.pushed {
+            format!("promoted to {} (pushed)", req.remote)
+        } else if sat.error.is_some() {
+            format!("recorded promote to {} (satellite push failed)", req.remote)
+        } else {
+            format!("recorded promote to {}", req.remote)
+        };
+
         let next_seq = manifest.seq + 1;
         let entry = WalEntry {
             seq: next_seq,
@@ -305,12 +347,8 @@ impl Host {
             r#ref: Some(ref_name),
             before: None,
             after: Some(tip),
-            message: Some(format!("recorded promote to {}", req.remote)),
-            extra: BTreeMap::from([
-                ("remote".into(), req.remote.clone()),
-                ("checkpoint_id".into(), ck.id.clone()),
-                ("pushed".into(), "false".into()),
-            ]),
+            message: Some(message),
+            extra,
         };
         self.backend
             .put(&wal_key(&repo, next_seq), &entry.bytes()?)?;
@@ -725,7 +763,7 @@ mod tests {
     fn promote_is_refused_without_the_gate() {
         let host = Host::new(Mem::new());
         session_push(&host);
-        let err = host.promote("acme", "app", promote_req()).unwrap_err();
+        let err = host.promote("acme", "app", promote_req(), None).unwrap_err();
         assert!(matches!(err, Error::PromoteRefused(_, kind) if kind == "release"));
         let wal = host.list_wal("acme", "app").unwrap();
         assert!(!wal.iter().any(|e| e.kind == WalKind::Promote));
@@ -736,7 +774,7 @@ mod tests {
         let host = Host::new(Mem::new());
         let ck = session_push(&host);
         host.approve("acme", "app", &ck.id, "josh").unwrap();
-        let entry = host.promote("acme", "app", promote_req()).unwrap();
+        let entry = host.promote("acme", "app", promote_req(), None).unwrap();
         assert_eq!(entry.kind, WalKind::Promote);
         assert_eq!(
             entry.extra.get("remote").map(String::as_str),
@@ -746,5 +784,25 @@ mod tests {
         assert_eq!(entry.extra.get("checkpoint_id"), Some(&ck.id));
         let wal = host.list_wal("acme", "app").unwrap();
         assert!(wal.iter().any(|e| e.kind == WalKind::Promote));
+    }
+
+    #[test]
+    fn promote_records_satellite_success() {
+        let host = Host::new(Mem::new());
+        let ck = session_push(&host);
+        host.approve("acme", "app", &ck.id, "josh").unwrap();
+        let sat = SatelliteResult::ok(
+            "refs/heads/forgekit/promotes",
+            "https://github.com/acme/app/tree/forgekit/promotes",
+        );
+        let entry = host
+            .promote("acme", "app", promote_req(), Some(sat))
+            .unwrap();
+        assert_eq!(entry.extra.get("pushed").map(String::as_str), Some("true"));
+        assert_eq!(
+            entry.extra.get("remote_ref").map(String::as_str),
+            Some("refs/heads/forgekit/promotes")
+        );
+        assert!(entry.extra.get("url").is_some());
     }
 }
