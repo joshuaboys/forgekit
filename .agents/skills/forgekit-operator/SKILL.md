@@ -19,7 +19,7 @@ work  →  virtual push (often)  →  checkpoint when reviewable
 
 ## Prerequisites
 
-- A long-running `forgekit serve --config <toml>` is up.
+- A long-running `forgekit serve` is up (`--config` optional; defaults are used when absent).
 - Config uses `backend = "filesystem"` for real work (`memory` is tests only).
 - CLI commands talk HTTP to `listen` in that config. If serve is down, stop.
 
@@ -74,7 +74,7 @@ Rules:
 
 - List: `GET /v1/repos/{owner}/{name}/checkpoints`
 - Inspect: `GET /v1/repos/{owner}/{name}/checkpoints/{id}`
-- CLI: `forgekit checkpoint list|inspect --config <toml> --owner … --name …`
+- CLI: `forgekit checkpoint list|inspect|approve <owner>/<name>`
 
 A checkpoint is pending until approved. Trailer form:
 `Entire-Checkpoint: <12-char-id>`.
@@ -88,12 +88,14 @@ Content-Type: application/json
 {"actor": "josh"}
 ```
 
+CLI equivalent: `forgekit checkpoint approve <owner>/<name> --id <id> --actor josh`
+
 Second approve on a non-pending checkpoint → `409`. Do not invent workarounds.
 
 ## Promote
 
 ```text
-forgekit promote --config <toml> --owner <o> --name <n> --ref main --actor <who>
+forgekit promote <owner>/<name> --ref main --actor <who>
 ```
 
 or `POST /v1/repos/{owner}/{name}/promote` with body:

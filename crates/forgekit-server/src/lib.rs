@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use forgekit_core::{Error, Host, PromoteRequest, PushRequest, SatelliteResult};
+use forgekit_core::{Error, Host, PromoteRequest, PushRequest};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

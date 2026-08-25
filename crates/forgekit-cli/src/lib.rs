@@ -5,7 +5,7 @@ mod client;
 pub use client::{parse_kind, Client};
 
 use clap::{Parser, Subcommand};
-use forgekit_core::{Host, ObjectBackend, PromoteRequest};
+use forgekit_core::{Host, ObjectBackend, PromoteRequest, PushRequest, Session};
 use forgekit_github::GitHubSatellite;
 use forgekit_server::AppState;
 use forgekit_store::{FilesystemBackend, MemoryBackend, R2Backend, R2Config};
@@ -23,7 +23,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Write a starter forgekit.toml in the current directory
+    /// Write a starter forgekit.toml (optional: defaults work without one)
     Init {
         /// Path to write (default: forgekit.toml)
         #[arg(long, default_value = "forgekit.toml")]
@@ -42,58 +42,120 @@ pub enum Command {
         #[arg(long, default_value = "forgekit.toml")]
         config: PathBuf,
     },
-    /// Inspect checkpoints
+    /// Create and list repos
+    Repo {
+        #[command(subcommand)]
+        action: RepoCommand,
+    },
+    /// Virtual push, optionally creating a checkpoint
+    Push {
+        /// Repo as owner/name
+        repo: String,
+        /// Commit message
+        #[arg(long, short = 'm')]
+        message: String,
+        #[arg(long, default_value = "main")]
+        r#ref: String,
+        #[arg(long, default_value = "cli")]
+        actor: String,
+        /// File touched by this change (repeat for several)
+        #[arg(long = "file")]
+        files: Vec<String>,
+        /// Also create a checkpoint of this kind: work|stable|release
+        #[arg(long)]
+        kind: Option<String>,
+        /// Session prompt recorded with the checkpoint
+        #[arg(long)]
+        prompt: Option<String>,
+        #[arg(long, default_value = "forgekit.toml")]
+        config: PathBuf,
+    },
+    /// Inspect and approve checkpoints
     Checkpoint {
         #[command(subcommand)]
         action: CheckpointCommand,
     },
     /// Gated promote to GitHub satellite (evidence push when configured)
     Promote {
-        #[arg(long, default_value = "forgekit.toml")]
-        config: PathBuf,
-        #[arg(long)]
-        owner: String,
-        #[arg(long)]
-        name: String,
+        /// Repo as owner/name
+        repo: String,
         #[arg(long, default_value = "main")]
         r#ref: String,
         #[arg(long, default_value = "cli")]
         actor: String,
+        #[arg(long, default_value = "forgekit.toml")]
+        config: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RepoCommand {
+    /// Create a repo
+    Create {
+        /// Repo as owner/name
+        repo: String,
+        #[arg(long, default_value = "forgekit.toml")]
+        config: PathBuf,
+    },
+    /// List repos on the host
+    List {
+        #[arg(long, default_value = "forgekit.toml")]
+        config: PathBuf,
     },
 }
 
 #[derive(Debug, Subcommand)]
 pub enum CheckpointCommand {
+    /// List checkpoints
     List {
+        /// Repo as owner/name
+        repo: String,
         #[arg(long, default_value = "forgekit.toml")]
         config: PathBuf,
-        #[arg(long)]
-        owner: String,
-        #[arg(long)]
-        name: String,
     },
+    /// Inspect one checkpoint
     Inspect {
-        #[arg(long, default_value = "forgekit.toml")]
-        config: PathBuf,
-        #[arg(long)]
-        owner: String,
-        #[arg(long)]
-        name: String,
+        /// Repo as owner/name
+        repo: String,
         #[arg(long)]
         id: String,
+        #[arg(long, default_value = "forgekit.toml")]
+        config: PathBuf,
+    },
+    /// Approve a checkpoint: the review moment that unlocks promote
+    Approve {
+        /// Repo as owner/name
+        repo: String,
+        #[arg(long)]
+        id: String,
+        #[arg(long, default_value = "cli")]
+        actor: String,
+        #[arg(long, default_value = "forgekit.toml")]
+        config: PathBuf,
     },
 }
 
+/// Split an `owner/name` repo spec.
+pub fn parse_repo(spec: &str) -> Result<(String, String), String> {
+    match spec.split_once('/') {
+        Some((owner, name)) if !owner.is_empty() && !name.is_empty() && !name.contains('/') => {
+            Ok((owner.to_string(), name.to_string()))
+        }
+        _ => Err(format!("repo must be owner/name (got {spec:?})")),
+    }
+}
+
+/// Address `forgekit serve` binds when no config file is present.
+pub const DEFAULT_LISTEN: &str = "127.0.0.1:8088";
+
 #[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub listen: String,
     pub mode: String,
     pub backend: String,
-    #[serde(default = "default_data_dir")]
     pub data_dir: PathBuf,
-    #[serde(default)]
     pub github: GithubConfig,
-    #[serde(default)]
     pub r2: R2Toml,
 }
 
@@ -101,18 +163,39 @@ fn default_data_dir() -> PathBuf {
     PathBuf::from("./data")
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            listen: DEFAULT_LISTEN.into(),
+            mode: "local".into(),
+            backend: "filesystem".into(),
+            data_dir: default_data_dir(),
+            github: GithubConfig::default(),
+            r2: R2Toml::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct GithubConfig {
-    #[serde(default = "default_remote")]
     pub remote: String,
-    #[serde(default)]
     pub repository: String,
-    #[serde(default = "default_token_env")]
     pub token_env: String,
-    #[serde(default)]
     pub push: bool,
-    #[serde(default = "default_kind")]
     pub required_checkpoint_kind: String,
+}
+
+impl Default for GithubConfig {
+    fn default() -> Self {
+        Self {
+            remote: default_remote(),
+            repository: String::new(),
+            token_env: default_token_env(),
+            push: false,
+            required_checkpoint_kind: default_kind(),
+        }
+    }
 }
 
 fn default_remote() -> String {
@@ -127,20 +210,28 @@ fn default_kind() -> String {
     "release".into()
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct R2Toml {
-    #[serde(default)]
     pub bucket: String,
-    #[serde(default)]
     pub endpoint: String,
-    #[serde(default = "default_region")]
     pub region: String,
-    #[serde(default = "default_access_key_env")]
     pub access_key_env: String,
-    #[serde(default = "default_secret_key_env")]
     pub secret_key_env: String,
-    #[serde(default)]
     pub prefix: String,
+}
+
+impl Default for R2Toml {
+    fn default() -> Self {
+        Self {
+            bucket: String::new(),
+            endpoint: String::new(),
+            region: default_region(),
+            access_key_env: default_access_key_env(),
+            secret_key_env: default_secret_key_env(),
+            prefix: String::new(),
+        }
+    }
 }
 
 fn default_region() -> String {
@@ -155,7 +246,7 @@ fn default_secret_key_env() -> String {
     "R2_SECRET_ACCESS_KEY".into()
 }
 
-const INIT_TOML: &str = r+#"# Generated by `forgekit init`
+const INIT_TOML: &str = r#"# Generated by `forgekit init`
 # Edit, then: forgekit serve
 
 listen = "127.0.0.1:8088"
@@ -187,6 +278,17 @@ impl Config {
         let raw =
             std::fs::read_to_string(path.as_ref()).map_err(|e| format!("read config: {e}"))?;
         toml::from_str(&raw).map_err(|e| format!("parse config: {e}"))
+    }
+
+    /// Load `path` when it exists, else fall back to built-in defaults so the
+    /// host is usable without running `forgekit init` first.
+    pub fn load_or_default(path: impl AsRef<Path>) -> Result<Self, String> {
+        let path = path.as_ref();
+        if path.exists() {
+            Self::load(path)
+        } else {
+            Ok(Self::default())
+        }
     }
 
     pub fn listen_addr(&self) -> Result<SocketAddr, String> {
@@ -263,8 +365,7 @@ pub fn run_init(path: &Path, force: bool) -> Result<String, String> {
     }
     std::fs::write(path, INIT_TOML).map_err(|e| e.to_string())?;
     Ok(format!(
-        "wrote {}\nNext:\n  export GITHUB_TOKEN=...   # optional, for promote push\n  forgekit serve --config {}\n  # create repo, push, checkpoint, approve, promote",
-        path.display(),
+        "wrote {}\nNext:\n  forgekit serve\n  forgekit repo create acme/app\n  forgekit push acme/app -m \"feat\" --kind release\n  forgekit checkpoint list acme/app\n  forgekit checkpoint approve acme/app --id <id>\n  forgekit promote acme/app",
         path.display()
     ))
 }
@@ -304,6 +405,56 @@ pub async fn run_checkpoint_inspect(
 ) -> Result<String, String> {
     let ck = config.client().inspect_checkpoint(owner, name, id).await?;
     Ok(serde_json::to_string_pretty(&ck).unwrap())
+}
+
+pub async fn run_repo_create(config: &Config, owner: &str, name: &str) -> Result<String, String> {
+    let summary = config.client().create_repo(owner, name).await?;
+    Ok(serde_json::to_string_pretty(&summary).unwrap())
+}
+
+pub async fn run_repo_list(config: &Config) -> Result<String, String> {
+    let v = config.client().list_repos().await?;
+    Ok(serde_json::to_string_pretty(&v).unwrap())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run_push(
+    config: &Config,
+    owner: &str,
+    name: &str,
+    r#ref: &str,
+    message: &str,
+    actor: &str,
+    files: Vec<String>,
+    kind: Option<&str>,
+    prompt: Option<&str>,
+) -> Result<String, String> {
+    let kind = kind.map(parse_kind).transpose()?;
+    let session = prompt.map(|p| Session {
+        prompt: Some(p.to_string()),
+        ..Default::default()
+    });
+    let req = PushRequest {
+        r#ref: r#ref.into(),
+        message: message.into(),
+        actor: actor.into(),
+        files,
+        session,
+        kind,
+    };
+    let v = config.client().push(owner, name, &req).await?;
+    Ok(serde_json::to_string_pretty(&v).unwrap())
+}
+
+pub async fn run_checkpoint_approve(
+    config: &Config,
+    owner: &str,
+    name: &str,
+    id: &str,
+    actor: &str,
+) -> Result<String, String> {
+    let cp = config.client().approve(owner, name, id, actor).await?;
+    Ok(serde_json::to_string_pretty(&cp).unwrap())
 }
 
 pub async fn run_promote(
@@ -356,7 +507,9 @@ mod tests {
     }
 
     async fn spawn_example() -> (Client, Config) {
-        let cfg = Config::load(example_path()).unwrap();
+        let mut cfg = Config::load(example_path()).unwrap();
+        // Keep tests hermetic and rerunnable: no shared on-disk data_dir.
+        cfg.backend = "memory".into();
         let state = cfg.app_state().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

@@ -8,3 +8,5 @@
 .env
 forgekit.toml
 !forgekit.example.toml
+/data
+**/data/
