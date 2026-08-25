@@ -5,12 +5,10 @@ A share-nothing Git host for the agent era. One static Rust binary.
 Work on **cheap durable storage**. Review through **checkpoints** (commit + session context). **Promote** to GitHub when it is actually a release — not on every agent thrash.
 
 ```text
-agent work  ──►  forgekit (local / store)  ──►  checkpoint review  ──►  promote  ──►  GitHub
+agent work  ──►  forgekit (local / store / r2)  ──►  checkpoint review  ──►  promote  ──►  GitHub
 ```
 
-**Status:** MVP complete — `memory` and `filesystem` backends, WAL + CAS tip, checkpoints, gated promote, JSON HTTP API, and CLI.
-
-> Promote currently **records** the transition in the WAL. A network `git push` to GitHub is Phase 2. Smart HTTP is also out of this MVP window; agents and tools talk JSON under `/v1/`.
+**Status:** MVP + Phase 2 starts — `memory`, `filesystem`, and `r2` backends; WAL + CAS tip; checkpoints; gated promote with optional **real GitHub evidence push**; JSON HTTP API; CLI with `init`.
 
 ---
 
@@ -18,7 +16,13 @@ agent work  ──►  forgekit (local / store)  ──►  checkpoint review  �
 
 **Requirements:** [Rust](https://rustup.rs/) 1.80 or newer (`rustc --version`).
 
-### Option A — install the binary from GitHub
+### One-liner
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joshuaboys/forgekit/main/install.sh | bash
+```
+
+Or:
 
 ```bash
 cargo install --git https://github.com/joshuaboys/forgekit --locked --bin forgekit
@@ -26,202 +30,31 @@ cargo install --git https://github.com/joshuaboys/forgekit --locked --bin forgek
 
 That puts `forgekit` on your `PATH` (usually `~/.cargo/bin`).
 
-### Option B — build from a clone
+### Build from a clone
 
 ```bash
 git clone https://github.com/joshuaboys/forgekit.git
 cd forgekit
 cargo build --release -p forgekit-cli
-```
-
-Binary:
-
-```text
-./target/release/forgekit
-```
-
-Optional install into `~/.cargo/bin`:
-
-```bash
-cargo install --path crates/forgekit-cli --locked
+# binary: ./target/release/forgekit
 ```
 
 ### Verify
 
 ```bash
 forgekit --help
+forgekit init
 ```
 
 ---
 
-## How to use it properly
-
-Forgekit is not a drop-in replacement for `git push origin main` on every save. Treat it as the **day-to-day host** for noisy agent work; GitHub stays the **public / release** surface.
-
-### Mental model
-
-| Surface | Role |
-| ------- | ---- |
-| **Forgekit host** | Primary place agents write. Cheap, durable, concurrent-safe (WAL + CAS). |
-| **Checkpoint** | The review moment: a commit bound to session context (prompt, tools, files). Status moves `pending` → `approved` (or rejected/superseded later). |
-| **Promote** | Explicit “this tip is ready for the satellite.” Gated on an **approved** checkpoint of the required kind (default `release`). |
-| **GitHub** | Where humans and CI expect history. Not the daily dump for agent churn. |
-
-Do **not** promote every intermediate agent commit. Push freely on the cheap side; promote only when you mean release (or a stable handoff).
-
-### Choose a backend
-
-| Backend | Use when |
-| ------- | -------- |
-| `filesystem` | Real work. State lives under `data_dir` and survives restart. **Use this by default.** |
-| `memory` | Unit tests and throwaway demos only. State dies with the process and is **not** shared with other CLI invocations. |
-
-```toml
-backend = "filesystem"
-data_dir = "./data"
-```
-
-Run **one** `forgekit serve` per data directory. CLI commands (`status`, `checkpoint`, `promote`) are HTTP clients against `listen` — they need that serve process up.
-
-### The intended loop
-
-```text
-1. serve          — long-running host
-2. create repo    — once per project
-3. virtual push   — agents write often; attach session + kind when you want a review unit
-4. list / inspect — human or agent reviews the checkpoint
-5. approve        — deliberate accept of that review unit
-6. promote        — only after approve; records the release intent
-```
-
-#### 1. Start the host (leave it running)
+## Quick start (lowest friction)
 
 ```bash
-cp forgekit.example.toml forgekit.toml
-# set backend = "filesystem"
-forgekit serve --config forgekit.toml
-```
+forgekit init
+# edit forgekit.toml if needed (defaults are filesystem + local)
 
-```bash
-curl -s http://127.0.0.1:8088/healthz   # {"ok":true}
-forgekit status --config forgekit.toml
-```
-
-#### 2. Create a repository once
-
-```bash
-curl -s -X POST http://127.0.0.1:8088/v1/repos \
-  -H 'content-type: application/json' \
-  -d '{"owner":"acme","name":"app"}'
-```
-
-Names are restricted to alphanumeric, `-`, `_`, `.` (max 64). Invalid names return `400`.
-
-#### 3. Virtual-push work (often)
-
-A push always advances the tip (WAL + CAS). A **checkpoint** is created only when you send `session` and/or `kind`:
-
-```bash
-curl -s -X POST http://127.0.0.1:8088/v1/repos/acme/app/push \
-  -H 'content-type: application/json' \
-  -d '{
-    "ref": "main",
-    "message": "feat: auth",
-    "actor": "pi",
-    "files": ["src/auth.rs"],
-    "kind": "release",
-    "session": {
-      "prompt": "add auth middleware",
-      "tools": ["edit", "test"],
-      "attribution": "pi"
-    }
-  }'
-```
-
-| Field | Guidance |
-| ----- | -------- |
-| `ref` | Branch name (`main`) or full ref (`refs/heads/main`) |
-| `actor` | Who wrote this (agent id or human) |
-| `kind` | `work` (default if only session), `stable`, or `release`. Use **`release`** when this tip should be promotable. |
-| `session` | Capture enough context to review later without re-running the agent. |
-| omit both `session` and `kind` | Durable push **without** a checkpoint (fine for intermediate noise). |
-
-Working refs always point at the **code commit**, not the checkpoint id. Checkpoint trailer form: `Entire-Checkpoint: <12-char-id>`.
-
-Concurrent pushes race the tip: exactly one wins; the loser gets `409` / `CasConflict`. Retry after re-reading the tip.
-
-#### 4. Review checkpoints
-
-```bash
-forgekit checkpoint list --config forgekit.toml --owner acme --name app
-forgekit checkpoint inspect --config forgekit.toml --owner acme --name app --id <12-char-id>
-```
-
-Or HTTP:
-
-```bash
-curl -s http://127.0.0.1:8088/v1/repos/acme/app/checkpoints
-curl -s http://127.0.0.1:8088/v1/repos/acme/app/events   # WAL: push, checkpoint, approve, promote
-```
-
-Read the session payload. That is the review surface — not a CI log.
-
-#### 5. Approve when you mean it
-
-```bash
-curl -s -X POST http://127.0.0.1:8088/v1/repos/acme/app/checkpoints/<id>/approve \
-  -H 'content-type: application/json' \
-  -d '{"actor":"josh"}'
-```
-
-Only `pending` checkpoints can be approved. A second approve returns `409`. Approval is durable (WAL `approve`).
-
-#### 6. Promote only after approval
-
-```bash
-forgekit promote --config forgekit.toml --owner acme --name app --ref main --actor josh
-```
-
-- **Without** an approved checkpoint of `github.required_checkpoint_kind` on that tip → **fails closed** (`403`).
-- **With** a matching approved checkpoint → WAL `promote` entry is written (`remote=github`, `pushed=false`).
-
-Until Phase 2, “promote” means **recorded release intent**, not a network push. You still ship to GitHub by whatever process you use today; the gate is the quality boundary inside Forgekit.
-
-### Agent integration pattern
-
-1. Keep `forgekit serve` running for the project (filesystem backend).
-2. Agent finishes a unit of work → `POST .../push` with `kind` + `session` (prompt, tools, files touched).
-3. Human or policy agent → `checkpoint list` / `inspect` → `approve` when the unit is acceptable.
-4. Release operator → `promote` when the tip should leave the cheap primary.
-
-Push **without** session/kind for high-churn intermediates so you do not flood the checkpoint list. Attach a checkpoint when the work is a coherent reviewable unit.
-
-### Agent skill
-
-Point coding agents at the operator skill so they learn **when** to checkpoint and promote — not only which HTTP route to hit:
-
-- [`.agents/skills/forgekit-operator/SKILL.md`](.agents/skills/forgekit-operator/SKILL.md)
-
-It encodes: push without checkpoint for noise, with `kind` + `session` for review units, approve as a deliberate gate, promote only after approve, and how to handle `403` / `409`.
-
-### What “done” looks like for a release tip
-
-1. Tip commit exists on the ref you care about.
-2. A checkpoint of kind `release` (or your configured kind) points at that commit.
-3. That checkpoint is `approved`.
-4. `promote` succeeds and appears in `/events`.
-
-Anything short of that is still local agent work — which is the point.
-
----
-
-## Quick start (copy-paste)
-
-```bash
-cp forgekit.example.toml forgekit.toml
-# edit: backend = "filesystem"
-
-forgekit serve --config forgekit.toml &
+forgekit serve &
 
 curl -s -X POST http://127.0.0.1:8088/v1/repos \
   -H 'content-type: application/json' \
@@ -238,24 +71,103 @@ curl -s -X POST http://127.0.0.1:8088/v1/repos/acme/app/push \
     "session": { "prompt": "add auth" }
   }'
 
-forgekit checkpoint list --config forgekit.toml --owner acme --name app
-# approve via HTTP, then:
-forgekit promote --config forgekit.toml --owner acme --name app --ref main --actor josh
+forgekit checkpoint list --owner acme --name app
+# approve the checkpoint id, then:
+# forgekit promote --owner acme --name app --ref main --actor josh
 ```
+
+### Optional: real GitHub promote push
+
+1. Create a fine-grained or classic token with `contents: write` on the target repo.
+2. In `forgekit.toml`:
+
+```toml
+[github]
+repository = "you/your-repo"
+push = true
+token_env = "GITHUB_TOKEN"
+required_checkpoint_kind = "release"
+```
+
+3. `export GITHUB_TOKEN=ghp_...`
+4. Restart `forgekit serve`. Promote now pushes **evidence** (JSON of tip + checkpoint) onto `refs/heads/forgekit/promotes` via the Git Data API. The working branch is not rewritten.
+
+### Optional: R2 / S3 cloud storage
+
+```toml
+backend = "r2"
+
+[r2]
+bucket = "my-forgekit"
+endpoint = "https://<accountid>.r2.cloudflarestorage.com"
+region = "auto"
+access_key_env = "R2_ACCESS_KEY_ID"
+secret_key_env = "R2_SECRET_ACCESS_KEY"
+prefix = "prod/"   # optional key prefix
+```
+
+```bash
+export R2_ACCESS_KEY_ID=...
+export R2_SECRET_ACCESS_KEY=...
+forgekit serve
+```
+
+CAS is process-local for R2 (single host per bucket/prefix). Multi-host coordination is a later work item.
+
+---
+
+## How to use it properly
+
+Forgekit is not a drop-in replacement for `git push origin main` on every save. Treat it as the **day-to-day host** for noisy agent work; GitHub stays the **public / release** surface.
+
+### Mental model
+
+| Surface | Role |
+| ------- | ---- |
+| **Forgekit host** | Primary place agents write. Cheap, durable, concurrent-safe (WAL + CAS). |
+| **Checkpoint** | The review moment: a commit bound to session context (prompt, tools, files). Status moves `pending` → `approved`. |
+| **Promote** | Explicit “this tip is ready for the satellite.” Gated on an **approved** checkpoint of the required kind (default `release`). Optionally pushes evidence to GitHub. |
+| **GitHub** | Where humans and CI expect history. Not the daily dump for agent churn. |
+
+### Choose a backend
+
+| Backend | Use when |
+| ------- | -------- |
+| `filesystem` | Real work on one machine. **Default from `forgekit init`.** |
+| `r2` | Shared / durable cloud object store (R2, S3-compatible). |
+| `memory` | Unit tests and throwaway demos only. |
+
+Run **one** `forgekit serve` per data directory / bucket prefix. CLI commands are HTTP clients against `listen`.
+
+### The intended loop
+
+```text
+1. init + serve   — long-running host
+2. create repo    — once per project
+3. virtual push   — agents write often; attach session + kind when you want a review unit
+4. list / inspect — human or agent reviews the checkpoint
+5. approve        — deliberate accept of that review unit
+6. promote        — only after approve; records intent and optionally pushes evidence
+```
+
+### Agent skill
+
+Point coding agents at [`.agents/skills/forgekit-operator/SKILL.md`](.agents/skills/forgekit-operator/SKILL.md) so they learn **when** to checkpoint and promote.
 
 ---
 
 ## CLI
 
 ```text
-forgekit serve --config <path>          # start JSON HTTP host (long-running)
-forgekit status --config <path>         # mode, backend, repo count
+forgekit init [--path forgekit.toml] [--force]
+forgekit serve --config <path>
+forgekit status --config <path>
 forgekit checkpoint list  --config <path> --owner <o> --name <n>
 forgekit checkpoint inspect --config <path> --owner <o> --name <n> --id <id>
 forgekit promote --config <path> --owner <o> --name <n> --ref <ref> [--actor <who>]
 ```
 
-Default `--config` is `forgekit.toml` in the current directory. All commands except `serve` require a reachable host on `listen`.
+Default `--config` is `forgekit.toml` in the current directory.
 
 ---
 
@@ -266,7 +178,7 @@ Base: `http://<listen>` (example `http://127.0.0.1:8088`).
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
 | `GET` | `/healthz` | Liveness |
-| `GET` | `/v1/status` | Mode, backend, repo count |
+| `GET` | `/v1/status` | Mode, backend, repo count, `github_push` |
 | `GET` | `/v1/repos` | List repos |
 | `POST` | `/v1/repos` | Create repo `{"owner","name"}` |
 | `GET` | `/v1/repos/{owner}/{name}` | Repo tip summary |
@@ -274,20 +186,20 @@ Base: `http://<listen>` (example `http://127.0.0.1:8088`).
 | `GET` | `/v1/repos/{owner}/{name}/checkpoints` | List checkpoints |
 | `GET` | `/v1/repos/{owner}/{name}/checkpoints/{id}` | Inspect checkpoint |
 | `POST` | `/v1/repos/{owner}/{name}/checkpoints/{id}/approve` | Approve `{"actor"}` |
-| `POST` | `/v1/repos/{owner}/{name}/promote` | Gated promote |
+| `POST` | `/v1/repos/{owner}/{name}/promote` | Gated promote (+ optional GitHub push) |
 | `GET` | `/v1/repos/{owner}/{name}/events` | WAL events |
 
-Gate errors are intentional status codes, not 500s: `409` conflict / not pending, `403` promote refused, `404` missing, `400` bad name.
+Gate errors: `409` conflict / not pending, `403` promote refused, `404` missing, `400` bad name.
 
 ---
 
 ## How it works (short)
 
 - **WAL + CAS tip** — acknowledged write is visible on the next read; concurrent tip races produce one winner and `CasConflict` for the loser.
-- **Checkpoint** — native object bound to a commit, with kind (`work` / `stable` / `release`), status, and session. Optional Entire-compatible trailer: `Entire-Checkpoint: <12-char-id>`. Working refs stay on the code commit only.
-- **Promote** — requires an **approved** checkpoint of the configured kind on the tip. Records the intent; does not yet push to GitHub.
+- **Checkpoint** — native object bound to a commit, with kind (`work` / `stable` / `release`), status, and session.
+- **Promote** — requires an **approved** checkpoint of the configured kind on the tip. Records the intent; when `github.push = true`, also pushes evidence to `refs/heads/forgekit/promotes`.
 
-Inspired by Continuity / [walgit](https://github.com/tobi/walgit) (WAL + CAS) and [Entire](https://entire.io) (checkpoint UX, MIT). Native storage is primary; Entire interop is optional emission.
+Inspired by Continuity / [walgit](https://github.com/tobi/walgit) (WAL + CAS) and [Entire](https://entire.io) (checkpoint UX, MIT).
 
 ---
 
@@ -295,18 +207,19 @@ Inspired by Continuity / [walgit](https://github.com/tobi/walgit) (WAL + CAS) an
 
 ```bash
 cargo test --workspace
-cargo run -p forgekit-cli -- serve --config forgekit.example.toml
+cargo run -p forgekit-cli -- init
+cargo run -p forgekit-cli -- serve --config forgekit.toml
 ```
 
-Planning lives under [`plans/`](plans/index.aps.md). Architecture: [`designs/2026-08-24-forgekit-architecture.design.md`](designs/2026-08-24-forgekit-architecture.design.md).
+Planning lives under [`plans/`](plans/index.aps.md).
 
 ---
 
-## Not in this MVP
+## Not in this window
 
 - Smart HTTP (`git-upload-pack` / `git-receive-pack`)
-- Real network push to GitHub on promote
-- Cloud object backends (R2 / S3) — filesystem and memory only
+- Full Git object history on GitHub (promote pushes **evidence**, not a mirror of every virtual commit)
+- Multi-host CAS for R2 (single-host lock today)
 - LFS, bundle-uri, OIDC
 
 ---
