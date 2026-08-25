@@ -11,7 +11,9 @@ echo "→ cargo install --git https://github.com/joshuaboys/forgekit --locked --
 cargo install --git https://github.com/joshuaboys/forgekit --locked --bin forgekit
 
 echo
-echo "Installed. Next:"
+echo "Installed. Quick start:"
 echo "  forgekit init"
+echo "  # optional: set github.repository + export GITHUB_TOKEN for promote push"
+echo "  # optional: set backend = \"r2\" + R2_* env for cloud storage"
 echo "  forgekit serve"
-echo "  # set GITHUB_TOKEN and github.repository in forgekit.toml to push promotes"
+echo "  curl -s -X POST http://127.0.0.1:8088/v1/repos -H 'content-type: application/json' -d '{\"owner\":\"acme\",\"name\":\"app\"}'"

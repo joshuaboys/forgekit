@@ -16,5 +16,14 @@ repository = ""
 # Env var holding a token with `contents: write` (e.g. GITHUB_TOKEN)
 token_env = "GITHUB_TOKEN"
 # When true, promote pushes evidence to refs/heads/forgekit/promotes
-push = true
+push = false
 required_checkpoint_kind = "release"
+
+# Optional cloud object store — set backend = "r2" to use
+[r2]
+bucket = ""
+endpoint = ""   # e.g. https://<accountid>.r2.cloudflarestorage.com
+region = "auto"
+access_key_env = "R2_ACCESS_KEY_ID"
+secret_key_env = "R2_SECRET_ACCESS_KEY"
+prefix = ""
