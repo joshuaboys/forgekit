@@ -31,6 +31,7 @@ struct TreeResp {
 #[derive(Debug, Deserialize)]
 struct CommitResp {
     sha: String,
+    #[allow(dead_code)]
     html_url: Option<String>,
 }
 
@@ -187,7 +188,8 @@ impl GitHubSatellite {
             )
             .await?;
         } else {
-            self.post(
+            // Discard the created-ref body: decoding it into `()` fails on a JSON object.
+            self.post::<serde_json::Value>(
                 &client,
                 &format!("{API}/repos/{}/git/refs", self.repository),
                 &json!({ "ref": PROMOTE_REF, "sha": commit.sha }),

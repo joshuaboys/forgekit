@@ -317,7 +317,7 @@ fn hex_sha256(data: &[u8]) -> String {
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
     // HMAC-SHA256 without extra crate: ipad/opad
     const BLOCK: usize = 64;
-    let mut k = if key.len() > BLOCK {
+    let k = if key.len() > BLOCK {
         let mut h = Sha256::new();
         h.update(key);
         let d = h.finalize();

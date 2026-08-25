@@ -26,6 +26,10 @@ impl Client {
         self.get("/v1/status").await
     }
 
+    pub async fn list_repos(&self) -> Result<serde_json::Value, String> {
+        self.get("/v1/repos").await
+    }
+
     pub async fn list_checkpoints(
         &self,
         owner: &str,
