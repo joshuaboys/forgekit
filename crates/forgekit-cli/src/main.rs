@@ -1,7 +1,7 @@
 use clap::Parser;
 use forgekit_cli::{
-    run_checkpoint_inspect, run_checkpoint_list, run_promote, run_status, serve, CheckpointCommand,
-    Cli, Command, Config,
+    run_checkpoint_inspect, run_checkpoint_list, run_init, run_promote, run_status, serve,
+    CheckpointCommand, Cli, Command, Config,
 };
 
 #[tokio::main]
@@ -15,6 +15,10 @@ async fn main() {
 async fn run() -> Result<(), String> {
     let cli = Cli::parse();
     match cli.command {
+        Command::Init { path, force } => {
+            println!("{}", run_init(&path, force)?);
+            Ok(())
+        }
         Command::Serve { config } => {
             let cfg = Config::load(&config)?;
             serve(cfg).await
