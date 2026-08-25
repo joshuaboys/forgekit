@@ -1,11 +1,20 @@
 # Example Forgekit host config.
-# Copy to forgekit.toml (gitignored) and adjust.
+# Create one quickly with:  forgekit init
+#
+# Copy to forgekit.toml (gitignored) or run `forgekit init`.
 
 listen = "127.0.0.1:8088"
 mode = "local"
-backend = "memory"
+backend = "filesystem"
 data_dir = "./data"
 
 [github]
+# Logical remote name stored on promote events.
 remote = "github"
+# owner/repo on GitHub — required when push = true
+repository = ""
+# Env var holding a token with `contents: write` (e.g. GITHUB_TOKEN)
+token_env = "GITHUB_TOKEN"
+# When true, promote pushes evidence to refs/heads/forgekit/promotes
+push = true
 required_checkpoint_kind = "release"

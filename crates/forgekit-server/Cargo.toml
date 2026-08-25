@@ -8,6 +8,7 @@ description = "JSON HTTP API for Forgekit"
 [dependencies]
 axum.workspace = true
 forgekit-core = { path = "../forgekit-core" }
+forgekit-github = { path = "../forgekit-github" }
 forgekit-store = { path = "../forgekit-store" }
 serde.workspace = true
 serde_json.workspace = true
