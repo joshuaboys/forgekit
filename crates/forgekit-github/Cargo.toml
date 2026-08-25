@@ -1,0 +1,12 @@
+[package]
+name = "forgekit-github"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GitHub satellite push for Forgekit promote"
+
+[dependencies]
+forgekit-core = { path = "../forgekit-core" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde.workspace = true
+serde_json.workspace = true
