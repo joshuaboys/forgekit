@@ -65,7 +65,7 @@ named in the crate source linked from the inventory table.
 
 ## Licence summary
 
-- **MIT License** — 127 crates
+- **MIT License** — 128 crates
 - **Unicode License v3** — 19 crates
 - **Apache License 2.0** — 3 crates
 - **ISC License** — 3 crates
@@ -2732,6 +2732,7 @@ Used by:
 
 - `forgekit-cli` 0.1.0
 - `forgekit-core` 0.1.0
+- `forgekit-github` 0.1.0
 - `forgekit-server` 0.1.0
 - `forgekit-store` 0.1.0
 - `chrono` 0.4.45
@@ -3315,6 +3316,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 | `matchit` | 0.8.4 | MIT License | https://github.com/ibraheemdev/matchit |
 | `forgekit-cli` | 0.1.0 | MIT License | — |
 | `forgekit-core` | 0.1.0 | MIT License | — |
+| `forgekit-github` | 0.1.0 | MIT License | — |
 | `forgekit-server` | 0.1.0 | MIT License | — |
 | `forgekit-store` | 0.1.0 | MIT License | — |
 | `chrono` | 0.4.45 | MIT License | https://github.com/chronotope/chrono |
