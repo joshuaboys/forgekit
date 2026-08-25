@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use forgekit_core::{Error, Host, PromoteRequest, PushRequest};
+use forgekit_core::{Error, Host, PromoteRequest, PushRequest, SatelliteResult};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -14,6 +14,8 @@ pub struct AppState {
     pub host: Arc<Host>,
     pub mode: String,
     pub backend: String,
+    /// Optional GitHub satellite for promote evidence push.
+    pub github: Option<Arc<forgekit_github::GitHubSatellite>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -26,6 +28,7 @@ pub struct StatusBody {
     pub mode: String,
     pub backend: String,
     pub repo_count: usize,
+    pub github_push: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,6 +101,7 @@ async fn status(State(state): State<AppState>) -> impl IntoResponse {
                 mode: state.mode.clone(),
                 backend: state.backend.clone(),
                 repo_count: repos.len(),
+                github_push: state.github.is_some(),
             }),
         )
             .into_response(),
@@ -183,7 +187,49 @@ async fn promote(
     Path((owner, name)): Path<(String, String)>,
     Json(req): Json<PromoteRequest>,
 ) -> impl IntoResponse {
-    match state.host.promote(&owner, &name, req) {
+    // Gate first via a dry path: load tip + approved checkpoint inside host.
+    // If satellite is configured, push evidence then record with result.
+    let satellite = if let Some(gh) = &state.github {
+        // Peek checkpoint id by simulating the gate logic through list.
+        match state.host.list_checkpoints(&owner, &name) {
+            Ok(list) => {
+                let tip_ok = state.host.get_repo(&owner, &name).ok();
+                let tip = tip_ok.and_then(|s| {
+                    let ref_name = if req.r#ref.starts_with("refs/") {
+                        req.r#ref.clone()
+                    } else {
+                        format!("refs/heads/{}", req.r#ref)
+                    };
+                    s.refs.get(&ref_name).cloned()
+                });
+                let matched = list.into_iter().find(|ck| {
+                    tip.as_ref().map(|t| &ck.commit == t).unwrap_or(false)
+                        && ck.status == forgekit_core::CheckpointStatus::Approved
+                        && ck.kind == req.required_kind
+                });
+                if let (Some(ck), Some(tip)) = (matched, tip) {
+                    Some(
+                        gh.push_promote(
+                            &owner,
+                            &name,
+                            &tip,
+                            &ck.id,
+                            &req.actor,
+                            &format!("promote {}", req.r#ref),
+                        )
+                        .await,
+                    )
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    match state.host.promote(&owner, &name, req, satellite) {
         Ok(entry) => (StatusCode::OK, Json(entry)).into_response(),
         Err(e) => map_error(e).into_response(),
     }
@@ -220,6 +266,7 @@ mod tests {
             host: Arc::new(host),
             mode: "local".into(),
             backend: "memory".into(),
+            github: None,
         })
     }
 
@@ -228,6 +275,7 @@ mod tests {
             host: Arc::new(Host::new(Arc::new(MemoryBackend::new()))),
             mode: "local".into(),
             backend: "memory".into(),
+            github: None,
         })
     }
 
@@ -272,6 +320,7 @@ mod tests {
         assert_eq!(body["mode"], "local");
         assert_eq!(body["backend"], "memory");
         assert_eq!(body["repo_count"], 1);
+        assert_eq!(body["github_push"], false);
     }
 
     #[tokio::test]
@@ -280,6 +329,7 @@ mod tests {
             host: Arc::new(Host::new(Arc::new(MemoryBackend::new()))),
             mode: "local".into(),
             backend: "memory".into(),
+            github: None,
         };
         let host = state.host.clone();
         let app = router(state);
@@ -391,6 +441,7 @@ mod tests {
             host: Arc::new(host),
             mode: "local".into(),
             backend: "memory".into(),
+            github: None,
         });
         let res = call(
             app.clone(),

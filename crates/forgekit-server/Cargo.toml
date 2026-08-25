@@ -13,6 +13,8 @@ forgekit-store = { path = "../forgekit-store" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+tower.workspace = true
 
 [dev-dependencies]
-tower.workspace = true
+forgekit-store = { path = "../forgekit-store" }
+tower = { workspace = true, features = ["util"] }
