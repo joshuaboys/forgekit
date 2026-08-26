@@ -10,3 +10,7 @@ forgekit-core = { path = "../forgekit-core" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+tokio.workspace = true

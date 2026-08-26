@@ -8,7 +8,8 @@ use forgekit_core::SatelliteResult;
 use serde::Deserialize;
 use serde_json::json;
 
-const API: &str = "https://api.github.com";
+/// Public GitHub API root. Override per-instance for GitHub Enterprise or tests.
+pub const API: &str = "https://api.github.com";
 const PROMOTE_REF: &str = "refs/heads/forgekit/promotes";
 
 #[derive(Debug, Clone)]
@@ -16,6 +17,8 @@ pub struct GitHubSatellite {
     pub token: String,
     /// `owner/repo` on GitHub.
     pub repository: String,
+    /// API root; defaults to [`API`].
+    pub api_base: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,7 +59,14 @@ impl GitHubSatellite {
         Ok(Self {
             token,
             repository: repository.to_string(),
+            api_base: API.to_string(),
         })
+    }
+
+    /// Point this satellite at a different API root (GitHub Enterprise, tests).
+    pub fn with_api_base(mut self, base: impl Into<String>) -> Self {
+        self.api_base = base.into();
+        self
     }
 
     pub async fn push_promote(
@@ -86,6 +96,7 @@ impl GitHubSatellite {
         actor: &str,
         message: &str,
     ) -> Result<SatelliteResult, String> {
+        let api = &self.api_base;
         let client = reqwest::Client::builder()
             .user_agent("forgekit")
             .build()
@@ -106,7 +117,7 @@ impl GitHubSatellite {
         let blob: BlobResp = self
             .post(
                 &client,
-                &format!("{API}/repos/{}/git/blobs", self.repository),
+                &format!("{api}/repos/{}/git/blobs", self.repository),
                 &json!({
                     "content": String::from_utf8_lossy(&content),
                     "encoding": "utf-8",
@@ -119,14 +130,14 @@ impl GitHubSatellite {
             let commit: CommitResp = self
                 .get(
                     &client,
-                    &format!("{API}/repos/{}/git/commits/{parent_sha}", self.repository),
+                    &format!("{api}/repos/{}/git/commits/{parent_sha}", self.repository),
                 )
                 .await?;
             // CommitResp only has sha/html_url — fetch full commit for tree
             let full: serde_json::Value = self
                 .get(
                     &client,
-                    &format!("{API}/repos/{}/git/commits/{parent_sha}", self.repository),
+                    &format!("{api}/repos/{}/git/commits/{parent_sha}", self.repository),
                 )
                 .await?;
             full["tree"]["sha"]
@@ -152,7 +163,7 @@ impl GitHubSatellite {
         let tree: TreeResp = self
             .post(
                 &client,
-                &format!("{API}/repos/{}/git/trees", self.repository),
+                &format!("{api}/repos/{}/git/trees", self.repository),
                 &tree_body,
             )
             .await?;
@@ -172,7 +183,7 @@ impl GitHubSatellite {
         let commit: CommitResp = self
             .post(
                 &client,
-                &format!("{API}/repos/{}/git/commits", self.repository),
+                &format!("{api}/repos/{}/git/commits", self.repository),
                 &commit_body,
             )
             .await?;
@@ -181,7 +192,7 @@ impl GitHubSatellite {
             self.patch(
                 &client,
                 &format!(
-                    "{API}/repos/{}/git/refs/heads/forgekit/promotes",
+                    "{api}/repos/{}/git/refs/heads/forgekit/promotes",
                     self.repository
                 ),
                 &json!({ "sha": commit.sha, "force": false }),
@@ -191,7 +202,7 @@ impl GitHubSatellite {
             // Discard the created-ref body: decoding it into `()` fails on a JSON object.
             self.post::<serde_json::Value>(
                 &client,
-                &format!("{API}/repos/{}/git/refs", self.repository),
+                &format!("{api}/repos/{}/git/refs", self.repository),
                 &json!({ "ref": PROMOTE_REF, "sha": commit.sha }),
             )
             .await?;
@@ -206,11 +217,12 @@ impl GitHubSatellite {
 
     async fn get_ref_sha(&self, client: &reqwest::Client, ref_name: &str) -> Result<String, String> {
         // API wants refs/heads/... without "refs/" prefix in path sometimes
+        let api = &self.api_base;
         let path = ref_name.strip_prefix("refs/").unwrap_or(ref_name);
         let r: RefResp = self
             .get(
                 client,
-                &format!("{API}/repos/{}/git/ref/{path}", self.repository),
+                &format!("{api}/repos/{}/git/ref/{path}", self.repository),
             )
             .await?;
         Ok(r.object.sha)
@@ -281,5 +293,155 @@ impl GitHubSatellite {
             return Err(format!("GitHub PATCH {url}: {status} {text}"));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::extract::State;
+    use axum::http::StatusCode;
+    use axum::routing::{get, post};
+    use axum::{Json, Router};
+    use std::sync::{Arc, Mutex};
+
+    /// Records which endpoints the satellite actually called.
+    #[derive(Default)]
+    struct Calls {
+        hits: Vec<String>,
+        /// Whether refs/heads/forgekit/promotes already exists.
+        ref_exists: bool,
+    }
+
+    type Shared = Arc<Mutex<Calls>>;
+
+    fn hit(state: &Shared, what: &str) {
+        state.lock().unwrap().hits.push(what.to_string());
+    }
+
+    async fn create_blob(State(s): State<Shared>) -> Json<serde_json::Value> {
+        hit(&s, "POST blobs");
+        Json(json!({ "sha": "blobsha" }))
+    }
+
+    async fn get_ref(State(s): State<Shared>) -> Result<Json<serde_json::Value>, StatusCode> {
+        hit(&s, "GET ref");
+        if s.lock().unwrap().ref_exists {
+            Ok(Json(json!({ "object": { "sha": "parentsha" } })))
+        } else {
+            // GitHub 404s an absent ref; the satellite treats that as "first push".
+            Err(StatusCode::NOT_FOUND)
+        }
+    }
+
+    async fn get_commit(State(s): State<Shared>) -> Json<serde_json::Value> {
+        hit(&s, "GET commit");
+        Json(json!({ "sha": "parentsha", "tree": { "sha": "basetreesha" } }))
+    }
+
+    async fn create_tree(State(s): State<Shared>) -> Json<serde_json::Value> {
+        hit(&s, "POST trees");
+        Json(json!({ "sha": "treesha" }))
+    }
+
+    async fn create_commit(State(s): State<Shared>) -> Json<serde_json::Value> {
+        hit(&s, "POST commits");
+        Json(json!({ "sha": "commitsha", "html_url": "https://example.invalid/c" }))
+    }
+
+    /// The regression surface: GitHub answers create-ref with a JSON *object*.
+    /// Decoding that into `()` (never-type fallback) always failed.
+    async fn create_ref(State(s): State<Shared>) -> Json<serde_json::Value> {
+        hit(&s, "POST refs");
+        Json(json!({
+            "ref": PROMOTE_REF,
+            "node_id": "NODE",
+            "url": "https://example.invalid/ref",
+            "object": { "sha": "commitsha", "type": "commit" }
+        }))
+    }
+
+    async fn update_ref(State(s): State<Shared>) -> Json<serde_json::Value> {
+        hit(&s, "PATCH ref");
+        Json(json!({ "ref": PROMOTE_REF, "object": { "sha": "commitsha" } }))
+    }
+
+    async fn spawn_mock(ref_exists: bool) -> (String, Shared) {
+        let state: Shared = Arc::new(Mutex::new(Calls {
+            hits: Vec::new(),
+            ref_exists,
+        }));
+        let app = Router::new()
+            .route("/repos/{owner}/{repo}/git/blobs", post(create_blob))
+            .route("/repos/{owner}/{repo}/git/trees", post(create_tree))
+            .route("/repos/{owner}/{repo}/git/commits", post(create_commit))
+            .route("/repos/{owner}/{repo}/git/commits/{sha}", get(get_commit))
+            .route("/repos/{owner}/{repo}/git/refs", post(create_ref))
+            .route(
+                "/repos/{owner}/{repo}/git/ref/heads/forgekit/promotes",
+                get(get_ref),
+            )
+            .route(
+                "/repos/{owner}/{repo}/git/refs/heads/forgekit/promotes",
+                axum::routing::patch(update_ref),
+            )
+            .with_state(state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://{addr}"), state)
+    }
+
+    fn satellite(base: &str) -> GitHubSatellite {
+        GitHubSatellite {
+            token: "t0ken".into(),
+            repository: "acme/app".into(),
+            api_base: base.to_string(),
+        }
+    }
+
+    /// First promote to a repo: the ref does not exist, so the satellite must
+    /// CREATE it. This is the path that silently failed when the create-ref
+    /// response was decoded into `()`.
+    #[tokio::test]
+    async fn first_push_creates_the_ref() {
+        let (base, state) = spawn_mock(false).await;
+        let res = satellite(&base)
+            .push_promote("acme", "app", "tipoid", "ckpt123", "josh", "feat")
+            .await;
+
+        assert!(res.pushed, "first push should succeed: {:?}", res.error);
+        assert_eq!(res.remote_ref.as_deref(), Some(PROMOTE_REF));
+
+        let hits = state.lock().unwrap().hits.clone();
+        assert!(hits.contains(&"POST refs".to_string()), "hits: {hits:?}");
+        assert!(!hits.contains(&"PATCH ref".to_string()), "hits: {hits:?}");
+    }
+
+    /// Subsequent promotes fast-forward the existing ref instead of creating it.
+    #[tokio::test]
+    async fn later_push_updates_the_ref() {
+        let (base, state) = spawn_mock(true).await;
+        let res = satellite(&base)
+            .push_promote("acme", "app", "tipoid", "ckpt456", "josh", "feat")
+            .await;
+
+        assert!(res.pushed, "update push should succeed: {:?}", res.error);
+
+        let hits = state.lock().unwrap().hits.clone();
+        assert!(hits.contains(&"PATCH ref".to_string()), "hits: {hits:?}");
+        assert!(!hits.contains(&"POST refs".to_string()), "hits: {hits:?}");
+    }
+
+    /// A failing API is surfaced, not swallowed.
+    #[tokio::test]
+    async fn api_failure_is_reported() {
+        let sat = satellite("http://127.0.0.1:1");
+        let res = sat
+            .push_promote("acme", "app", "tip", "ckpt", "josh", "feat")
+            .await;
+        assert!(!res.pushed);
+        assert!(res.error.is_some());
     }
 }
