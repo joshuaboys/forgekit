@@ -157,6 +157,13 @@ Forgekit is not a drop-in replacement for `git push origin main` on every save. 
 
 Run **one** `forgekit serve` per data directory / bucket prefix. CLI commands are HTTP clients against `listen`.
 
+### Security
+
+**The HTTP API is unauthenticated.** Anyone who can reach `listen` can approve
+checkpoints and trigger a promote that pushes with your GitHub token. The default
+`127.0.0.1` binding is the security boundary — do not bind `0.0.0.0` on a shared
+host without putting an authenticating proxy in front. See [SECURITY.md](SECURITY.md).
+
 ### The intended loop
 
 ```text
