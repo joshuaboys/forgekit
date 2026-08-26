@@ -369,10 +369,12 @@ dependencies = [
 name = "forgekit-github"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "forgekit-core",
  "reqwest",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
