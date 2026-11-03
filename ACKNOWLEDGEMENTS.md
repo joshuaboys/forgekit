@@ -1262,7 +1262,7 @@ DEALINGS IN THE SOFTWARE.
 Used by:
 
 - `hyper-rustls` 0.27.9
-- `rustls` 0.23.43
+- `rustls` 0.23.46
 
 <details>
 <summary>Licence text</summary>
@@ -3254,7 +3254,7 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 | `serde_urlencoded` | 0.7.1 | MIT License | https://github.com/nox/serde_urlencoded |
 | `utf8parse` | 0.2.2 | MIT License | https://github.com/alacritty/vte |
 | `hyper-rustls` | 0.27.9 | MIT License | https://github.com/rustls/hyper-rustls |
-| `rustls` | 0.23.43 | MIT License | https://github.com/rustls/rustls |
+| `rustls` | 0.23.46 | MIT License | https://github.com/rustls/rustls |
 | `httpdate` | 1.0.3 | MIT License | https://github.com/pyfisch/httpdate |
 | `lock_api` | 0.4.14 | MIT License | https://github.com/Amanieu/parking_lot |
 | `parking_lot` | 0.12.5 | MIT License | https://github.com/Amanieu/parking_lot |
